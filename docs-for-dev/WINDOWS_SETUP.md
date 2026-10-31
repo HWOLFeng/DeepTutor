@@ -401,7 +401,7 @@ docker run --rm --entrypoint sh ghcr.io/hwolfeng/deeptutor:latest -c \
 | 2026-10-31 | dev 栈构建 + `/health/ready` | ✅ 4 容器 `healthy`（`deeptutor`、`deeptutor-redis`、`deeptutor-sandbox-runner`、`pocketbase`）；`curl /health/ready` → 200；前端 `3782` 返回 `307`（`proxy.ts` 语言重定向），`GET /en` 编译 5.6s 后 404 |
 | 2026-10-31 | 测试基线（Python / Web） | ⚠️ 见 §8 第 3 节：practice 36 passed；ruff `check` 3 errors、`format --check` 5 files；typecheck exit 0；`test:node` 1302 pass / 4 fail（容器形态假失败）；`test:unit` 995/995（须 `NODE_ENV=test`）；`i18n:check` exit 1（18 处 UI 字面量） |
 | 2026-10-31 | 全量 pytest 基线 | ⚠️ 两次：A 纯净镜像 `89 failed / 10538 passed / 111 skipped`（12:58，其中约 55 条只是镜像缺 `Dockerfile`/`.github`/`docker-compose*.yml` 等文件）；B 补齐这些文件后 `32 failed / 10595 passed / 111 skipped`（9:26）。剩余失败分类见 §8 第 3 节 |
-| 2026-10-31 | provider / embedding 配置 | ✅ `config apply` 写入 `deepseek/deepseek-flash` + `aliyun/text-embedding-v4 (1024)`；`--check` 与 apply 均 `ok`；`doctor --format json` 四项全 pass，`doctor --online` → `The model returned a response`；应用层 embedding `2 vectors dim 1024`。⚠️ 原写 `deepseek-v4.1-flash` 不存在（账号仅 `deepseek-flash`/`deepseek-v4-pro`），已改 |
+| 2026-10-31 | provider / embedding 配置 | ✅ `config apply` 写入 `deepseek/deepseek-flash` + `aliyun/text-embedding-v4 (1024)`；`--check` 与 apply 均 `ok`；`doctor --format json` 四项全 pass，`doctor --online` → `The model returned a response`；应用层 embedding `2 vectors dim 1024`；端到端 `run chat` 实测返回（`rounds=1 tokens=7.4k cost=$0.0013`）。⚠️ 原写 `deepseek-v4.1-flash` 不存在（账号仅 `deepseek-flash`/`deepseek-v4-pro`），已改 |
 
 > 每一步跑通后把「⏳」改成「✅」，并把关键输出（端口、耗时、报错原文）补进本表；
 > 否则这份文档会退化成一份没人验证过的清单。
@@ -557,7 +557,10 @@ docker run --rm --entrypoint sh ghcr.io/hwolfeng/deeptutor:latest -c \
         `Provider response: The model returned a response`；应用层
         `get_embedding_client().embed(["ping","深蓝"])` → `binding: aliyun`、
         `model: text-embedding-v4`、`2 vectors`、`dim 1024`。
-        重启容器后 `/health/ready` 仍 200。
+        重启容器后 `/health/ready` 仍 200。端到端跑一轮真实对话（`run chat`，uid 1000）→
+        正常返回，`rounds=1 tokens=7.4k cost=$0.0013`。
+        ⚠️ CLI 必须用 `docker exec -u 1000:1000 -e HOME=/tmp deeptutor …`：用 root 跑会撞上
+        `/tmp` 里 uid 1000 的锁文件（`fs.protected_regular=2`），见「已知风险 5」。
       - 落盘：密钥写入 `data/user/settings/model_catalog.json`（`-rw-------`、属主 1000），
         该路径被 `.gitignore` 的 `data/` 覆盖（`git check-ignore` 命中），**未进仓库**。
 - [x] `deeptutor module list` + `deeptutor doctor --format json`，记录模块 ready 状态
@@ -717,17 +720,27 @@ docker run --rm --entrypoint sh ghcr.io/hwolfeng/deeptutor:latest -c \
    （见 [FORK_MIGRATION.md](FORK_MIGRATION.md) §1.2）。
 4. **中文 `findstr`、UTF-16 输出、`Enable Pending` + 快速启动** 这些 Windows 侧的坑
    已经踩完并写进 §3.1 与 §6，换机器时照抄，不要重新发明。
-5. **在容器里以 root 跑测试会污染两处，随后 app 起不来或 reload 静默失效**（2026-10-31 实测）：
-   - `/tmp/deeptutor-environment-<hash>.lock` 被 root 创建（mode 644），uid 1000 的后端
-     `_file_lease` 打不开 → **`Application startup failed. Exiting.` + 前端 502**
-     （`PermissionError: '/tmp/deeptutor-environment-….lock'`）；重启容器也没用，必须先
-     `docker exec -u root deeptutor rm -f /tmp/deeptutor-environment-*.lock`。
-   - `data/` 下出现 root 所有的目录 → 后端访问
-     `/app/data/users/<user>/user/settings` 抛 `PermissionError`，随后 `WatchFiles` 抛
-     `WatchfilesRustInternalError … Permission denied`，**热重载从此静默失效**（服务还在，
-     只是不再重启）。修法：`chown -R 1000:1000 data/` 后重启。
-   结论：测试请用 `docker exec -u deeptutor`，或跑完后无条件
-   `chown -R 1000:1000 data && rm -f /tmp/deeptutor-environment-*.lock` 再重启。
+5. **uid 混用碰上内核 `fs.protected_regular=2`，会让 app 起不来或热重载静默失效**
+   （2026-10-31 实测并定位到根因）：
+   - 现象 A：容器内以 root 跑过 CLI/测试后重启，后端
+     `Application startup failed. Exiting.` + 前端 502，日志是
+     `PermissionError: '/tmp/deeptutor-environment-<hash>.lock'`；
+   - 现象 B：`docker exec deeptutor python -m deeptutor_cli.main run chat …`（root）报同一个
+     `PermissionError`，但 `cat` 该文件**可以**；
+   - 根因：WSL2 内核 `sysctl fs.protected_regular = 2`。在 `/tmp` 这类 **sticky + 全局可写**
+     目录里，对**不属于自己**的文件以 `O_CREAT` 打开（Python `"a+b"`/`"w"`、shell `>>`）
+     会被直接 `EACCES`，**连 root 也一样，`chmod 666` 也不管用**；不带 `O_CREAT` 的
+     `"r+b"` 正常。验证：`python -c "open('/tmp/x','r+b')"` → ok，
+     `open('/tmp/x','a+b')` → `PermissionError`。
+   - 容器共享宿主内核，所以容器里同样生效；`data/` 目录属主错配（root 建、uid 1000 用）
+     还会让 `WatchFiles` 抛 `WatchfilesRustInternalError … Permission denied`，
+     **热重载从此静默失效**。
+   - 结论/规矩：**app 与所有 CLI/测试统一用 uid 1000**——
+     `docker exec -u 1000:1000 -e HOME=/tmp deeptutor …`，不要用 root 跑 CLI 或 pytest；
+     已经混用过后按需清理：
+     `docker exec -u root deeptutor rm -f /tmp/deeptutor-environment-*.lock` 并
+     `chown -R 1000:1000 data/`，再 `docker restart deeptutor`。
+
 6. **镜像里没有 `tests/`、`README.md`、`Dockerfile`、`.git`**：dev 栈的 `/app` 只是镜像内容
    ＋ 只读源码挂载，`docker-compose.dev.yml` 没挂 `tests/`。因此
    - 跑测试前要 `docker cp tests deeptutor:/app/tests`、`docker cp README.md deeptutor:/app/README.md`，
