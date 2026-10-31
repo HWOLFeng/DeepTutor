@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Lora } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import "@/features/ui-layout/classic/classic.css";
 import "@/features/ui-layout/modern/modern.css";
@@ -13,14 +13,18 @@ import { I18nClientBridge } from "@/i18n/I18nClientBridge";
 
 // Geist matches the public site (deeptutor.info) and stays crisp at the
 // small UI sizes the composer/toolbars use, unlike the rounder Jakarta.
-const fontSans = Geist({
-  subsets: ["latin"],
+// The fonts are vendored under app/fonts so production builds never depend
+// on fonts.googleapis.com being reachable.
+const fontSans = localFont({
+  src: "./fonts/geist-latin.woff2",
+  weight: "100 900",
   display: "swap",
   variable: "--font-sans",
 });
 
-const fontSerif = Lora({
-  subsets: ["latin"],
+const fontSerif = localFont({
+  src: "./fonts/lora-latin.woff2",
+  weight: "400 700",
   display: "swap",
   variable: "--font-serif",
 });
