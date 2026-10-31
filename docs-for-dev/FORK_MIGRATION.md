@@ -75,6 +75,8 @@
 ## 2. Windows 上构建自定义镜像
 
 前置：Docker Desktop（Linux containers）、约 20 GB 空闲磁盘、可访问 Docker Hub / GHCR。
+Windows 侧从零搭建环境（WSL2 + Ubuntu + Docker Engine，或原生 venv 回退）的完整步骤、
+代理与镜像源配置、常见坑，见 [WINDOWS_SETUP.md](WINDOWS_SETUP.md)。
 当前镜像约 2.4 GB，构建峰值内存建议 4 GB 以上。
 
 ```powershell

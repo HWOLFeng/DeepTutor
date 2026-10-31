@@ -55,6 +55,8 @@ installation before deciding to reinstall it.
   evidence and visual assessment.
 - [Scientific research](SCIENTIFIC_RESEARCH.md): paper tools, evidence and MCP
   authorization.
+- [Windows setup](WINDOWS_SETUP.md) *(中文)*: WSL2 + Ubuntu + Docker Engine for
+  a Linux-parity dev environment, plus image build/deploy from a Windows host.
 - [Practice](PRACTICE.md): question imports, review records and scheduling.
 - [Video learning](watching-workspace.md) and [voice](VOICE_CONFIGURATION.md):
   Reading media migration, captions, speech adapters and verification.
