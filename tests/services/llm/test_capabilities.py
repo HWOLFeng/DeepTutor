@@ -96,6 +96,23 @@ def test_codebuddy_capabilities_use_agent_sdk_mcp_tools() -> None:
     assert supports_vision("codebuddy", "codebuddy/default") is False
 
 
+def test_deepseek_flash_is_vision_capable() -> None:
+    """DeepSeek's Flash model accepts image blocks; older DeepSeek models do not.
+
+    The provider-wide ``deepseek`` default is fail-closed, so a missing
+    per-model override silently hides vision from chat attachments, scanned-PDF
+    import and the vision-gated settings pickers.
+    """
+    assert supports_vision("deepseek", "deepseek-flash") is True
+    assert supports_vision("openai", "deepseek-flash") is True
+    assert supports_vision("deepseek", "deepseek-v4-flash-vision-exp") is True
+    assert supports_vision("deepseek", "deepseek-chat") is False
+    assert supports_vision("deepseek", "deepseek-reasoner") is False
+    # The model override only changes vision; the family flags still apply.
+    assert has_thinking_tags("deepseek", "deepseek-flash") is True
+    assert supports_response_format("deepseek", "deepseek-flash") is False
+
+
 def test_qwen_model_override_enables_vision() -> None:
     assert supports_vision("dashscope", "qwen-vl-plus") is True
     assert supports_vision("openai", "qwen2.5-vl-72b-instruct") is True

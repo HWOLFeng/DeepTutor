@@ -274,6 +274,14 @@ MODEL_OVERRIDES: dict[str, dict[str, object]] = {
         "has_thinking_tags": True,
         "supports_vision": False,
     },
+    # DeepSeek's Flash family natively accepts image blocks. Without these
+    # overrides the provider-wide "no images" default vetoes chat attachments,
+    # scanned-PDF import and the vision-gated settings pickers for a model that
+    # can see. The retired experimental id is still callable and served by the
+    # same model.
+    # https://api-docs.deepseek.com/news/news260821/
+    "deepseek-v4-flash-vision-exp": {"supports_vision": True},
+    "deepseek-flash": {"supports_vision": True},
     # Qwen text models often share the same provider/gateway as Qwen-VL.
     # Keep thinking-tag handling broad, but only mark explicit VL/vision model
     # names as image-capable so RAG image indexing can fail closed.
