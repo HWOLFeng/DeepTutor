@@ -19,26 +19,36 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `deeptutor/services/practice/document_import.py` | PDF/DOCX 富文本、扫描页视觉识别、题图裁剪/复核/SVG 重绘 |
+| `deeptutor/services/practice/document_import.py` | PDF/DOCX 富文本、扫描页视觉识别、多图成组导入、图片压缩、题图裁剪/复核/SVG 重绘 |
 | `deeptutor/services/practice/importing.py` | xlsx 行锚定图片、data URI、图片数量上限 |
+| `deeptutor/services/practice/quality.py` | 答案归一化、错题判定、空位还原、重复题指纹 |
+| `scripts/eval_practice_ocr.py` | 真实照片识别评测（题数/答案/泄漏/重复/图形） |
+| `data/eval/practice-ocr/raw/` | 三张样图（语文填空、混合运算、正方体展开图） |
 | `deeptutor/services/practice/storage.py` | 导入时持久化题图、重复导入刷新题图 URL |
-| `deeptutor/services/session/sqlite_store.py` | `question_images_json` 建表/迁移/序列化、学习侧栏按导入文件聚合 |
-| `deeptutor/api/routers/practice.py` | PDF/DOCX 异步预览、题图写入 AttachmentStore |
+| `deeptutor/services/session/sqlite_store.py` | `question_images_json` 建表/迁移/序列化、学习侧栏按导入文件聚合并返回 `material_id` |
+| `deeptutor/api/routers/practice.py` | PDF/DOCX/图片异步预览、多图成组、题图写入 AttachmentStore |
+| `deeptutor/utils/document_images.py` | 导入图片的 WebP 归一化、长边限制与无损优先压缩 |
+| `deeptutor/services/llm/capabilities.py` | `deepseek-flash` 等模型的多模态能力覆盖 |
 | `deeptutor/api/routers/question_notebook.py` | API 返回 `question_images` |
 | `deeptutor/skills/builtin/practice-template/` | 内置技能：PDF/Word → 练习模板 xlsx，含 schema 参考 |
 | `deeptutor/book/context.py` | 成员读取管理员共享书籍时回退到 admin 书库 |
 | `deeptutor/agents/video_lesson/runtime.py` | 容器内 npm 缓存改到可写目录 |
 | `web/components/common/QuestionFigures.tsx` | 题图组件 |
-| `web/components/learning/practice/PracticeImport.tsx` | 导入面板接受 PDF/DOCX、显示题图缩略图 |
+| `web/components/learning/practice/PracticeImport.tsx` | 导入面板接受 PDF/DOCX/多张图片、上传前压缩、显示题图缩略图 |
+| `web/components/learning/practice/PracticeGroupSession.tsx` | 学习侧栏聚合文件直接开始整组练习 |
+| `web/components/learning/practice/PracticePage.tsx` | `?group=` 进入整组练习、按文件筛选题库与提示条 |
 | `web/components/learning/practice/PracticeSession.tsx` | 练习会话展示题图 |
 | `web/components/space/question-bank/QuestionCard.tsx` | 题库卡片展示题图 |
 | `web/components/sidebar/LearningNavigation.tsx` | 学习记录侧栏标题回退与数量徽标 |
-| `web/lib/learning-dashboard.ts` | 练习聚合行、统计按题目数计数 |
+| `web/lib/learning-dashboard.ts` | 练习聚合行、分组练习链接、统计按题目数计数 |
 | `web/lib/notebook-api.ts`、`web/lib/practice-api.ts` | 题图类型 |
 | `web/contracts/schema/openapi.json`、`web/contracts/generated/api.ts` | API 契约同步 |
 | `web/locales/en/app.json`、`web/locales/zh/app.json` | 导入提示文案 |
 | `web/app/layout.tsx` + `web/app/fonts/` | 本地 Geist/Lora 字体，构建不再依赖 Google Fonts |
-| `tests/api/test_practice.py` | 练习导入/题图/聚合测试 |
+| `tests/api/test_practice.py` | 练习导入/多图成组/图片压缩/题图/聚合测试 |
+| `tests/utils/test_document_images.py` | 图片压缩与无损路径测试 |
+| `tests/services/llm/test_capabilities.py` | 模型视觉能力表测试 |
+| `web/tests/practice-group.spec.tsx`、`web/tests/practice-workflow.spec.tsx`、`web/tests/learning-dashboard.test.ts` | 分组练习、多图导入与聚合链接测试 |
 | `tests/services/skill/test_practice_template_skill.py` | 技能测试 |
 | `tests/book/test_context.py`、`tests/agents/video_lesson/test_runtime.py` | 两项修复的回归测试 |
 | `NOTICE` | 非官方 Fork 声明与修改说明 |

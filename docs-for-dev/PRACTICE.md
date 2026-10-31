@@ -23,7 +23,8 @@
 
 ## 导入自己的题目
 
-支持 `.xlsx`、`.csv`、`.tsv`、`.json`，单次最多 **500 题、5 MB、64 列**。
+支持 `.xlsx`、`.csv`、`.tsv`、`.json`、`.pdf`、`.docx`，以及 PNG/JPEG/WebP/GIF 图片。
+单次最多 **500 题**；表格/文档单文件 **5 MB、64 列**；扫描件 **20 页**；图片 **20 张、单张 8 MB、合计 24 MB**。
 Excel 使用当前活动工作表；CSV/TSV 支持 UTF-8（含 BOM）和 GB18030。
 页面提供 Excel、CSV 模板。旧版 `.xls` 可先另存为 `.xlsx`。
 
@@ -56,10 +57,110 @@ JSON 文件使用对象数组；选项可放入 `options` 对象或数组，标�
 选择导入到「题库」或「错题」，上传后先检查预览。只要有一行不合法，就不会开放确认导入，
 页面会显示错误行号。Excel 公式需先粘贴为值。没有确认之前不会创建题目。
 
+预览会列出**识别到的每一道题**，默认全部勾选；确认前可以取消勾选不需要的题目，也可以整批
+全选 / 清空。每行显示学生作答、正确答案与标记：答对的题标「已答对」（导入到错题也按答对记录），
+答案经过第二遍核对但不一致的标「答案待核对」，题干里被手写填掉的空位已还原的标「已还原空位」。
+
+### 错题判定
+
+导入到「错题」不再等于"标成错题"：识别时会把学生写下的答案与正确答案按同一套规则比对，
+答对的题记为答对、不计入错题；只有能判定为答错、或无法比较（例如只写了部分过程）的题才进入
+错题集合。写在空位里的手写内容会还原成空位（「（凉爽）」→「（　　）」）并单独记录，题干不再
+自带答案。
+
 导入到题库的题目初始为「未作答」，不会仅因附带 `user_answer` 就自动判为错题。
 在课程范围内导入的题目归属该课程；导入文件名保留为材料来源。
 同一范围内，相同题干、题型、选项和答案的重复题会合并标签，保留已有题目及作答记录。
 提交失败可以重试同一预览；成功后的重试会返回同一结果。预览有效期为 24 小时。
+
+## PDF、Word 与题目图片
+
+除表格外，「导入题目」还接受 `.pdf`、`.docx` 与题目图片。这些输入共用同一个预览与确认流程：
+
+| 输入 | 解析方式 | 图片处理 |
+| --- | --- | --- |
+| 表格 | 按列读取 | 单元格图片、行锚定图片保留 |
+| 文字版 PDF / DOCX | 读取文本层，按题号切分；缺答案时用当前模型整理 | 内嵌图片按页面顺序挂到对应题目；页眉、页脚、logo 等装饰图跳过 |
+| 扫描版 PDF（无可用文本层） | 每页渲染成图，交给支持图片输入的模型识别 | 模型返回的 `figure_boxes` 裁成题图 |
+| 题目图片（可多张） | 每张图调用一次模型，结果合并为同一批 | 单题图片保留原图；多题图片按 `figure_boxes` 裁剪 |
+
+### 什么时候按扫描件处理
+
+判断依据是**文本层能否承载题目**，而不是有没有图片：整页扫描图会被页眉页脚过滤掉，
+文字页也可能带大幅背景图。文本层缺失、被 `(cid:)` 乱码替代，或完全解析不出题目时才逐页做
+视觉识别；只要文本里能解析出题目，就始终走文本路径，不会因为图片多而要求视觉模型。
+
+### 视觉模型要求
+
+扫描件与图片导入需要当前模型能读图。模型在「设置 → 模型」中选择；也可以在模型目录里用
+`capabilities.vision` 显式声明。`deepseek-flash`（含旧名 `deepseek-v4-flash-vision-exp`）
+已在能力表中标为支持图片。模型不支持图片时，导入会指出当前模型并停止，
+不会把扫描页误报成「没有可读文本」。
+
+### 多张图片作为一组导入
+
+- 一次选择多张图片时，它们作为**同一批**导入：每张图各识别一次，题目合并到同一个预览；
+- 组名默认为「N 张图片：<第一张文件名>」，侧栏与题库的「材料」筛选都使用这个组名；
+- 一张图只识别出一道题且没有图框时，会把这张原图保留为题图；
+- 多选时混入非图片文件会被直接拒绝，避免一半成功一半失败。
+
+### 图片压缩与尺寸
+
+导入链路的图片会做一次「尽量无损」的归一化：
+
+- 长边超过 2000 px 的缩到 2000 px（Lanczos）；
+- PNG、图表、带透明通道的图：先试无损 WebP，再试优化 PNG，取更小的；
+- 照片（JPEG）：WebP q92；
+- 小于 64 KB、动画 GIF、矢量图保持原样；重编码反而更大时保留原文件。
+
+浏览器只对大于 900 KB 的 **JPEG 照片**做缩放并输出 WebP q0.95；服务端识别到已经是
+WebP 且未超过长边时不再重编码，因此**照片在浏览器路径上只压缩一次**。PNG/图表不在浏览器
+重编码，交给服务端走无损 WebP/PNG；客户端未处理的情况（API 上传、小图、浏览器不支持
+WebP 编码）由服务端补做一次。
+
+视觉模型按**像素尺寸**计费，不按文件字节：压缩字节节省的是存储、上传带宽和请求时间；
+限制 token 的是 2000 px 长边与模型自身的缩放规则。
+
+## 分组练习：从学习侧栏开始整组做题
+
+学习侧栏的「学习记录」按导入文件聚合题目：一个导入批次一行，右侧数字是该组题目数。
+点击这类聚合节点会**直接开始这组题的练习**：
+
+- 链接形如 `/learning/practice?group=<material_id>&file=<文件名>`；
+- 会话顶部显示文件名，左上角「返回练习」回到练习首页；
+- 题目按导入顺序取，最多 500 道（列表接口按 200 道分页取完）；
+- 只有一道题的导入仍直接打开那道题（`?question=<id>`）；
+- 非导入来源的「其他题目」聚合行没有对应文件，仍进入练习主页。
+
+题库中保留按文件筛选的入口（`?view=bank&material=...`，显示「正在查看」提示条与
+「查看全部题目」），供直接链接使用；侧栏聚合节点不再使用它。
+
+### 导入排障
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| `<模型> cannot read images` | 扫描件/图片需要视觉模型：在设置中切换到支持图片的模型，或在模型目录声明 `capabilities.vision` |
+| `This scanned PDF has N pages` | 扫描件单次最多 20 页，分批导入 |
+| `Choose a non-empty file up to 5 MB` | 表格/文档单文件上限 5 MB；图片按张与总量限制 |
+| `When importing several files at once...` | 多选只能选图片；表格、PDF、DOCX 一次选一个 |
+| 识别出的题图缺失或被截断 | 模型漏标 `figure_boxes`；用更清晰的扫描件/照片重试，或改用文字版 PDF/DOCX |
+| 点聚合节点只看到「练习统计」 | 旧版本行为；当前版本聚合节点直接开始整组练习，刷新页面加载新前端 |
+
+## 识别质量：生成、验收与后处理
+
+识别链路刻意分成三层，避免"改一版提示词、看起来好一点"：
+
+- **生成**：提示词要求分离印刷体 / 手写 / 老师批改，空白位保持空白，公式用 LaTeX，
+  图框不得包含题干或选项，几何、坐标、展开图优先返回重绘 SVG；一页最多 40 题。
+- **验收**：每页再独立作答一遍，与第一遍答案不一致的题标记「答案待核对」，两遍不一致时
+  不静默替换答案；题干仍含答案、选择题缺选项、同一题重复出现都会在预览里标出。
+- **后处理**：[quality.py](../deeptutor/services/practice/quality.py) 做确定性修正——答案
+  归一化（`√`/`×` ↔ `T`/`F`、选项键排序、纯数字与末步结果比对）、空位还原、重复题指纹。
+
+回归评测用真实照片，而不是感觉：`python scripts/eval_practice_ocr.py --images data/eval/practice-ocr/raw`
+会走与接口相同的识别链路，输出题数、答案、答案泄漏、重复题干、图形可用五项计数。三张样图
+（语文填空、混合运算、正方体展开图）放在 `data/eval/practice-ocr/raw/`；`data/` 不随仓库提交，
+换机器时需要自行放入。
 
 ## 练习统计
 
@@ -111,6 +212,10 @@ SQLite 在原有题目写入时自动收集错题，不要求每个来源单独�
 
 ## Implementation and verification
 
-- [deeptutor/services/practice/](../deeptutor/services/practice/)
-- [deeptutor/api/routers/practice.py](../deeptutor/api/routers/practice.py)
-- [tests/api/test_practice.py](../tests/api/test_practice.py)
+- 文档解析与视觉识别：[document_import.py](../deeptutor/services/practice/document_import.py)、[importing.py](../deeptutor/services/practice/importing.py)
+- 图片压缩与尺寸：[document_images.py](../deeptutor/utils/document_images.py)
+- 导入接口：[practice.py](../deeptutor/api/routers/practice.py)
+- 视觉模型能力：[capabilities.py](../deeptutor/services/llm/capabilities.py)
+- 侧栏聚合：[sqlite_store.py](../deeptutor/services/session/sqlite_store.py)
+- 前端导入与分组练习：[PracticeImport.tsx](../web/components/learning/practice/PracticeImport.tsx)、[PracticeGroupSession.tsx](../web/components/learning/practice/PracticeGroupSession.tsx)、[PracticePage.tsx](../web/components/learning/practice/PracticePage.tsx)、[learning-dashboard.ts](../web/lib/learning-dashboard.ts)
+- 回归测试：[test_practice.py](../tests/api/test_practice.py)、[test_document_images.py](../tests/utils/test_document_images.py)、[test_capabilities.py](../tests/services/llm/test_capabilities.py)、[practice-group.spec.tsx](../web/tests/practice-group.spec.tsx)、[practice-workflow.spec.tsx](../web/tests/practice-workflow.spec.tsx)、[learning-dashboard.test.ts](../web/tests/learning-dashboard.test.ts)
