@@ -169,6 +169,28 @@ it("previews import errors without committing any rows", async () => {
   expect(api.commitPracticeImport).not.toHaveBeenCalled();
 });
 
+it("imports several question images as one grouped batch", async () => {
+  vi.mocked(api.previewPracticeImport).mockResolvedValue({
+    token: "c".repeat(32),
+    total: 2,
+    valid: 2,
+    errors: [],
+    samples: [],
+  });
+  render(<PracticeImport onClose={vi.fn()} onImported={vi.fn()} initialTarget="bank" />);
+  const first = new File(["a"], "page-1.png", { type: "image/png" });
+  const second = new File(["b"], "page-2.jpg", { type: "image/jpeg" });
+  fireEvent.change(screen.getByLabelText(/Choose a question file/), {
+    target: { files: [first, second] },
+  });
+  await waitFor(() => expect(api.previewPracticeImport).toHaveBeenCalledOnce());
+  const call = vi.mocked(api.previewPracticeImport).mock.calls[0];
+  expect(Array.isArray(call[0])).toBe(true);
+  expect((call[0] as File[]).map(file => file.name)).toEqual(["page-1.png", "page-2.jpg"]);
+  expect(call[1]).toBe("bank");
+  expect(call[2]).toContain("page-1.png");
+});
+
 it("keeps a successful preview available when import saving fails", async () => {
   vi.mocked(api.previewPracticeImport).mockResolvedValue({
     token: "a".repeat(32),
@@ -191,4 +213,48 @@ it("keeps a successful preview available when import saving fails", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Confirm import" }));
   await waitFor(() => expect(onImported).toHaveBeenCalledOnce());
   expect(api.previewPracticeImport).toHaveBeenCalledWith(expect.any(File), "mistakes");
+});
+
+it("lets the learner uncheck detected questions and imports only the kept ones", async () => {
+  vi.mocked(api.previewPracticeImport).mockResolvedValue({
+    token: "b".repeat(32),
+    total: 2,
+    valid: 2,
+    errors: [],
+    samples: [],
+    questions: [
+      {
+        question: "Question one",
+        question_type: "short_answer",
+        correct_answer: "A",
+        user_answer: "A",
+        tags: [],
+        attempt: "correct",
+      },
+      {
+        question: "Question two",
+        question_type: "short_answer",
+        correct_answer: "B",
+        tags: [],
+      },
+    ],
+  });
+  vi.mocked(api.commitPracticeImport).mockResolvedValue({
+    created: 1,
+    duplicates: 0,
+    total: 1,
+  });
+  render(<PracticeImport onClose={vi.fn()} onImported={vi.fn()} initialTarget="mistakes" />);
+  fireEvent.change(screen.getByLabelText(/Choose a question file/), {
+    target: { files: [new File(["q"], "questions.csv")] },
+  });
+  await screen.findByText("Question one");
+  // The learner already answered this one right; it must not read as a mistake.
+  expect(screen.getByText("Answered correctly")).toBeInTheDocument();
+  // Every detected question starts checked; uncheck the first.
+  fireEvent.click(screen.getByLabelText("Select question 1"));
+  fireEvent.click(screen.getByRole("button", { name: "Import selected (1)" }));
+  await waitFor(() =>
+    expect(api.commitPracticeImport).toHaveBeenCalledWith(expect.any(String), [1]),
+  );
 });

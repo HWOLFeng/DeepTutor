@@ -11,6 +11,44 @@ import {
 } from "@/lib/practice-api";
 import { QuestionFigures } from "@/components/common/QuestionFigures";
 
+/** Phone photos are several megabytes each; shrink them before upload so a
+ *  batch of screenshots still fits the request, without losing legibility.
+ *  WebP at a visually-lossless quality keeps the server from re-encoding the
+ *  image a second time, so the photo is only compressed once. */
+async function shrinkQuestionImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.size <= 900_000) return file;
+  // Only camera photos are re-encoded here. PNG screenshots and diagrams stay
+  // byte-for-byte and are compressed losslessly by the server, so a figure's
+  // text never goes through two lossy passes.
+  if (file.type !== "image/jpeg") return file;
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const webp = await new Promise<Blob | null>(resolve =>
+      canvas.toBlob(resolve, "image/webp", 0.95)
+    );
+    const blob =
+      webp && webp.type === "image/webp"
+        ? webp
+        : await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!blob) return file;
+    const extension = blob.type === "image/webp" ? "webp" : blob.type === "image/png" ? "png" : "jpg";
+    return new File([blob], `${file.name.replace(/\.[^.]+$/, "")}.${extension}`, {
+      type: blob.type,
+    });
+  } catch {
+    return file;
+  }
+}
+
 export function PracticeImport({
   onClose,
   onImported,
@@ -23,19 +61,56 @@ export function PracticeImport({
   const { t } = useTranslation();
   const [target, setTarget] = useState(initialTarget);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [filename, setFilename] = useState("");
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const [error, setError] = useState("");
-  async function select(file?: File) {
-    if (!file || pending.current) return;
+  // OCR is probabilistic, so every detected question is offered as a choice.
+  // All of them start checked; the learner unchecks what came out wrong.
+  const rows = preview ? preview.questions ?? preview.samples : [];
+  // Answers the model worked out itself are guesses; the printed ones are not.
+  const solvedCount = rows.filter(row => row.answer_source === "solved").length;
+  const allSelected = rows.length > 0 && selected.size === rows.length;
+  function toggleRow(index: number) {
+    setSelected(current => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(rows.map((_, index) => index)));
+  }
+  async function select(files?: FileList | null) {
+    const chosen = Array.from(files ?? []);
+    if (!chosen.length || pending.current) return;
+    const multi = chosen.length > 1;
+    if (multi && chosen.some(file => !file.type.startsWith("image/"))) {
+      setError(
+        t("Choose several images, or one spreadsheet, PDF or DOCX file at a time.")
+      );
+      return;
+    }
     pending.current = true;
     setBusy(true);
     setError("");
     setPreview(null);
-    setFilename(file.name);
+    const label = multi
+      ? t("{{count}} images: {{name}}", {
+          name: chosen[0].name,
+          count: chosen.length,
+        })
+      : chosen[0].name;
+    setFilename(label);
     try {
-      setPreview(await previewPracticeImport(file, target));
+      const prepared = await Promise.all(chosen.map(shrinkQuestionImage));
+      const result = multi
+        ? await previewPracticeImport(prepared, target, label)
+        : await previewPracticeImport(prepared[0], target);
+      setPreview(result);
+      setSelected(new Set((result.questions ?? result.samples).map((_, index) => index)));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -45,11 +120,18 @@ export function PracticeImport({
   }
   async function commit() {
     if (!preview?.token || pending.current) return;
+    if (rows.length > 0 && selected.size === 0) {
+      setError(t("Select at least one question to import."));
+      return;
+    }
     pending.current = true;
     setBusy(true);
     setError("");
     try {
-      const result = await commitPracticeImport(preview.token);
+      const result = await commitPracticeImport(
+        preview.token,
+        rows.length > 0 ? [...selected].sort((a, b) => a - b) : undefined
+      );
       onImported(t("Imported {{created}} questions; skipped {{duplicates}} duplicates.", result));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -80,7 +162,7 @@ export function PracticeImport({
       </div>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         {t(
-          "Import XLSX, CSV, TSV, JSON, PDF or DOCX. Up to 500 questions and 5 MB per file. XLSX uses the active sheet and keeps row-anchored pictures; PDF/DOCX keep their figures. Chinese and English column names are supported.",
+          "Import one XLSX, CSV, TSV, JSON, PDF or DOCX file, or several question images as one group. Up to 500 questions per import. XLSX uses the active sheet and keeps row-anchored pictures; PDF/DOCX and images keep their figures. Chinese and English column names are supported.",
         )}
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -119,17 +201,18 @@ export function PracticeImport({
         <input
           key={target}
           type="file"
-          accept=".xlsx,.csv,.tsv,.json,.pdf,.docx"
+          multiple
+          accept=".xlsx,.csv,.tsv,.json,.pdf,.docx,image/png,image/jpeg,image/webp,image/gif"
           disabled={busy}
           onChange={event => {
-            void select(event.target.files?.[0]);
+            void select(event.target.files);
             event.target.value = "";
           }}
           className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-primary"
         />
         <span className="mt-2 block text-xs text-muted-foreground">
           {t(
-            "Question and answer are required. Use tags to organize imported questions. Review the preview before saving.",
+            "Select one spreadsheet, PDF or DOCX file, or several question images to import them as one group.",
           )}
         </span>
       </label>
@@ -146,13 +229,33 @@ export function PracticeImport({
       )}
       {preview && (
         <div className="mt-4 space-y-3">
-          <p className="break-all text-sm font-medium">
-            {filename} ·{" "}
-            {t("{{valid}} of {{total}} rows are valid", {
-              valid: preview.valid,
-              total: preview.total,
-            })}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="break-all text-sm font-medium">
+              {filename} ·{" "}
+              {t("{{valid}} of {{total}} rows are valid", {
+                valid: preview.valid,
+                total: preview.total,
+              })}
+            </p>
+            {rows.length > 0 && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">
+                  {t("{{selected}} of {{total}} selected", {
+                    selected: selected.size,
+                    total: rows.length,
+                  })}
+                </span>
+                <button
+                  type="button"
+                  onClick={toggleAll}
+                  disabled={busy}
+                  className="rounded-lg border border-border px-2 py-1 font-medium hover:bg-muted disabled:opacity-50"
+                >
+                  {allSelected ? t("Clear selection") : t("Select all")}
+                </button>
+              </div>
+            )}
+          </div>
           {preview.errors.length > 0 && (
             <div
               role="alert"
@@ -168,15 +271,57 @@ export function PracticeImport({
               ))}
             </div>
           )}
-          <ol className="divide-y divide-border rounded-lg border border-border px-3">
-            {preview.samples.map((question, index) => (
-              <li key={index} className="py-3 text-sm">
-                <p className="line-clamp-2">{question.question}</p>
-                <QuestionFigures images={question.question_images} className="mt-2" maxHeight="max-h-28" />
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                  {t("Correct answer")}: {question.correct_answer}
-                  {question.tags.length ? ` · ${question.tags.join(" / ")}` : ""}
-                </p>
+          {solvedCount > 0 && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              {t("{{count}} answers were solved by the model — check them before importing.", {
+                count: solvedCount,
+              })}
+            </p>
+          )}
+          <ol className="max-h-[26rem] divide-y divide-border overflow-auto rounded-lg border border-border px-3">
+            {rows.map((question, index) => (
+              <li key={index} className="flex gap-3 py-3 text-sm">
+                {rows.length > 0 && (
+                  <input
+                    type="checkbox"
+                    checked={selected.has(index)}
+                    onChange={() => toggleRow(index)}
+                    disabled={busy}
+                    aria-label={t("Select question {{index}}", { index: index + 1 })}
+                    className="mt-1 h-4 w-4 shrink-0"
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-2">{question.question}</p>
+                  <QuestionFigures images={question.question_images} className="mt-2" maxHeight="max-h-28" />
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {t("Your answer")}: {question.user_answer || "—"} · {t("Correct answer")}:{" "}
+                    {question.correct_answer || "—"}
+                    {question.tags.length ? ` · ${question.tags.join(" / ")}` : ""}
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {question.attempt === "correct" && (
+                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+                        {t("Answered correctly")}
+                      </span>
+                    )}
+                    {question.answer_conflict && (
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                        {t("Check the answer")}
+                      </span>
+                    )}
+                    {question.leaks?.length ? (
+                      <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] text-sky-700 dark:text-sky-300">
+                        {t("Blank restored")}
+                      </span>
+                    ) : null}
+                    {!question.correct_answer && (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {t("No answer")}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </li>
             ))}
           </ol>
@@ -187,11 +332,13 @@ export function PracticeImport({
           </p>
           <button
             type="button"
-            disabled={busy || !preview.token}
+            disabled={busy || !preview.token || (rows.length > 0 && selected.size === 0)}
             onClick={() => void commit()}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40"
           >
-            {t("Confirm import")}
+            {rows.length > 0
+              ? t("Import selected ({{count}})", { count: selected.size })
+              : t("Confirm import")}
           </button>
         </div>
       )}

@@ -6201,5 +6201,21 @@
   "customize.learningHint": "Choose the learning methods shown on this page. Hidden methods can be added back at any time.",
   "customize.emptyLearning": "Make room for your next learning goal",
   "customize.emptyLearningHint": "Customize this page to show learning methods. Unavailable modules can be reviewed in Settings → Runtime.",
-  "customize.learningFooter": "Your choices are saved to your account. Only learning methods available in this environment are shown."
+  "customize.learningFooter": "Your choices are saved to your account. Only learning methods available in this environment are shown.",
+  "Import one XLSX, CSV, TSV, JSON, PDF or DOCX file, or several question images as one group. Up to 500 questions per import. XLSX uses the active sheet and keeps row-anchored pictures; PDF/DOCX and images keep their figures. Chinese and English column names are supported.": "Import one XLSX, CSV, TSV, JSON, PDF or DOCX file, or several question images as one group. Up to 500 questions per import. XLSX uses the active sheet and keeps row-anchored pictures; PDF/DOCX and images keep their figures. Chinese and English column names are supported.",
+  "Select one spreadsheet, PDF or DOCX file, or several question images to import them as one group.": "Select one spreadsheet, PDF or DOCX file, or several question images to import them as one group.",
+  "Choose several images, or one spreadsheet, PDF or DOCX file at a time.": "Choose several images, or one spreadsheet, PDF or DOCX file at a time.",
+  "{{count}} images: {{name}}": "{{count}} images: {{name}}",
+  "Showing questions from {{file}}": "Showing questions from {{file}}",
+  "Show all questions": "Show all questions",
+  "Could not start this practice set: {{error}}": "Could not start this practice set: {{error}}",
+  "This file has no questions left to practice.": "This file has no questions left to practice.",
+  "Select question {{index}}": "Select question {{index}}",
+  "Select at least one question to import.": "Select at least one question to import.",
+  "Answered correctly": "Answered correctly",
+  "Check the answer": "Check the answer",
+  "Blank restored": "Blank restored",
+  "No answer": "No answer",
+  "Import selected ({{count}})": "Import selected ({{count}})",
+  "{{count}} answers were solved by the model — check them before importing.": "{{count}} answers were solved by the model — check them before importing."
 }

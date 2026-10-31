@@ -6201,5 +6201,21 @@
   "customize.learningHint": "选择在新建学习页显示的学习方式。隐藏后可以随时重新添加。",
   "customize.emptyLearning": "为下一次学习做好准备",
   "customize.emptyLearningHint": "通过自定义页面添加学习方式。未安装或已禁用的模块可在设置 → 运行时中查看。",
-  "customize.learningFooter": "自定义设置会保存到你的账户；此处仅显示当前环境中可用的学习方式。"
+  "customize.learningFooter": "自定义设置会保存到你的账户；此处仅显示当前环境中可用的学习方式。",
+  "Import one XLSX, CSV, TSV, JSON, PDF or DOCX file, or several question images as one group. Up to 500 questions per import. XLSX uses the active sheet and keeps row-anchored pictures; PDF/DOCX and images keep their figures. Chinese and English column names are supported.": "支持单个 XLSX、CSV、TSV、JSON、PDF、DOCX 文件，或一次选择多张题目图片，作为一组导入。每次最多 500 道题。Excel 读取当前活动工作表并保留按行锚定的图片；PDF/DOCX 与图片会保留题图。支持中英文列名。",
+  "Select one spreadsheet, PDF or DOCX file, or several question images to import them as one group.": "可选择单个表格 / PDF / DOCX 文件，或选择多张题目图片，作为一组导入。",
+  "Choose several images, or one spreadsheet, PDF or DOCX file at a time.": "多选时只能选图片；表格、PDF、DOCX 请一次选一个文件。",
+  "{{count}} images: {{name}}": "{{count}} 张图片：{{name}}",
+  "Showing questions from {{file}}": "正在查看：{{file}}",
+  "Show all questions": "查看全部题目",
+  "Could not start this practice set: {{error}}": "无法开始这组练习：{{error}}",
+  "This file has no questions left to practice.": "这个文件里没有可练习的题目了。",
+  "Select question {{index}}": "选择第 {{index}} 题",
+  "Select at least one question to import.": "请至少选择一道题目。",
+  "Answered correctly": "已答对",
+  "Check the answer": "答案待核对",
+  "Blank restored": "已还原空位",
+  "No answer": "无答案",
+  "Import selected ({{count}})": "导入已选（{{count}}）",
+  "{{count}} answers were solved by the model — check them before importing.": "{{count}} 道题的答案由模型求解，导入前请核对。"
 }

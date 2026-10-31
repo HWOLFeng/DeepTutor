@@ -39,18 +39,32 @@ export interface PracticeAnalytics {
 }
 export const getPracticeAnalytics = (days = 30) =>
   request<PracticeAnalytics>(`/analytics?${params()}&days=${days}`)
+export interface ImportQuestion {
+  question: string
+  question_type: string
+  options?: Record<string, string>
+  correct_answer: string
+  user_answer?: string
+  explanation?: string
+  tags: string[]
+  question_images?: { id: string; url: string; filename: string; mime_type: string }[]
+  /** Whether the learner's own answer already matches the correct one. */
+  attempt?: 'correct' | 'incorrect' | 'unknown'
+  /** Answer text the importer removed from a filled-in blank. */
+  leaks?: string[]
+  /** A second solve pass disagreed with the answer on this row. */
+  answer_conflict?: boolean
+  answer_source?: 'printed' | 'solved'
+  page_type?: string
+}
 export interface ImportPreview {
   token: string | null
   total: number
   valid: number
   errors: { row: number; message: string }[]
-  samples: {
-    question: string
-    question_type: string
-    correct_answer: string
-    tags: string[]
-    question_images?: { id: string; url: string; filename: string; mime_type: string }[]
-  }[]
+  /** Every detected question; the learner unchecks the ones to leave out. */
+  questions?: ImportQuestion[]
+  samples: ImportQuestion[]
 }
 export class PracticeRequestError extends Error {
   constructor(
@@ -108,14 +122,29 @@ export const savePracticeReview = (
     json(body),
     workspaceId
   )
-export function previewPracticeImport(file: File, target: 'bank' | 'mistakes') {
+export function previewPracticeImport(
+  files: File | readonly File[],
+  target: 'bank' | 'mistakes',
+  label?: string
+) {
   const data = new FormData()
-  data.append('file', file)
+  const selected = Array.isArray(files) ? files : [files]
+  if (selected.length > 1) {
+    // Several question photos are one batch: the server stages them as a
+    // single import so the sidebar shows one grouped row.
+    selected.forEach(file => data.append('files', file, file.name))
+  } else {
+    data.append('file', selected[0])
+  }
   data.append('target', target)
+  if (label) data.append('label', label)
   return request<ImportPreview>('/import/preview', { method: 'POST', body: data })
 }
-export const commitPracticeImport = (token: string) =>
-  request<{ created: number; duplicates: number }>('/import/commit', json({ token }))
+export const commitPracticeImport = (token: string, selected?: number[]) =>
+  request<{ created: number; duplicates: number; total: number; mistakes?: number }>(
+    '/import/commit',
+    json(selected ? { token, selected } : { token })
+  )
 export async function downloadPracticeTemplate(format: 'csv' | 'xlsx') {
   const response = await apiFetch(apiUrl(`${ROOT}/import/template?format=${format}`))
   if (!response.ok) throw new Error(`Request failed: ${response.status}`)
