@@ -593,7 +593,7 @@ RUN pip install --no-cache-dir \
 # the production stage is reused as-is.
 RUN cat > /etc/supervisor/conf.d/programs.conf <<'EOF'
 [program:backend]
-command=/bin/bash -c "exec python -m uvicorn deeptutor.api.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8001} --reload --no-access-log --no-proxy-headers --ws-max-size $(python -c 'from deeptutor.services.config import get_ws_max_size; print(get_ws_max_size())' 2>/dev/null || echo 16777216) --timeout-keep-alive $(python -c 'from deeptutor.services.config import HTTP_KEEP_ALIVE_TIMEOUT; print(HTTP_KEEP_ALIVE_TIMEOUT)' 2>/dev/null || echo 300)"
+command=/bin/bash -c "exec python -m uvicorn deeptutor.api.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8001} --reload --reload-dir /app/deeptutor --reload-dir /app/deeptutor_cli --no-access-log --no-proxy-headers --ws-max-size $(python -c 'from deeptutor.services.config import get_ws_max_size; print(get_ws_max_size())' 2>/dev/null || echo 16777216) --timeout-keep-alive $(python -c 'from deeptutor.services.config import HTTP_KEEP_ALIVE_TIMEOUT; print(HTTP_KEEP_ALIVE_TIMEOUT)' 2>/dev/null || echo 300)"
 directory=/app
 user=deeptutor
 autostart=true

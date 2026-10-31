@@ -31,6 +31,13 @@ services:
     image: redis:7.4-alpine
     container_name: deeptutor-redis
     restart: unless-stopped
+    # Run as the same uid the app container uses. The deeptutor entrypoint
+    # re-chowns /app/data (which contains ./data/redis) to `deeptutor` on every
+    # start, so a redis running as its image default (uid 999) loses write
+    # access to its own data dir and then fails RDB saves with
+    # "MISCONF Redis is configured to save RDB snapshots...", which in turn
+    # breaks turn-leader election and turn leases.
+    user: "1000:1000"
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     volumes:
       - ./data/redis:/data
