@@ -401,6 +401,7 @@ docker run --rm --entrypoint sh ghcr.io/hwolfeng/deeptutor:latest -c \
 | 2026-10-31 | dev 栈构建 + `/health/ready` | ✅ 4 容器 `healthy`（`deeptutor`、`deeptutor-redis`、`deeptutor-sandbox-runner`、`pocketbase`）；`curl /health/ready` → 200；前端 `3782` 返回 `307`（`proxy.ts` 语言重定向），`GET /en` 编译 5.6s 后 404 |
 | 2026-10-31 | 测试基线（Python / Web） | ⚠️ 见 §8 第 3 节：practice 36 passed；ruff `check` 3 errors、`format --check` 5 files；typecheck exit 0；`test:node` 1302 pass / 4 fail（容器形态假失败）；`test:unit` 995/995（须 `NODE_ENV=test`）；`i18n:check` exit 1（18 处 UI 字面量） |
 | 2026-10-31 | 全量 pytest 基线 | ⚠️ 两次：A 纯净镜像 `89 failed / 10538 passed / 111 skipped`（12:58，其中约 55 条只是镜像缺 `Dockerfile`/`.github`/`docker-compose*.yml` 等文件）；B 补齐这些文件后 `32 failed / 10595 passed / 111 skipped`（9:26）。剩余失败分类见 §8 第 3 节 |
+| 2026-10-31 | provider / embedding 配置 | ✅ `config apply` 写入 `deepseek/deepseek-flash` + `aliyun/text-embedding-v4 (1024)`；`--check` 与 apply 均 `ok`；`doctor --format json` 四项全 pass，`doctor --online` → `The model returned a response`；应用层 embedding `2 vectors dim 1024`。⚠️ 原写 `deepseek-v4.1-flash` 不存在（账号仅 `deepseek-flash`/`deepseek-v4-pro`），已改 |
 
 > 每一步跑通后把「⏳」改成「✅」，并把关键输出（端口、耗时、报错原文）补进本表；
 > 否则这份文档会退化成一份没人验证过的清单。
@@ -539,19 +540,36 @@ docker run --rm --entrypoint sh ghcr.io/hwolfeng/deeptutor:latest -c \
         跑之前先 `cp /app/data/user/settings/auth.json /tmp/auth.json.bak`；
         `/app/data/user/settings/` 里 `agents.yaml`/`auth.json`/`model_catalog.json` 等
         是 entrypoint 首启自动生成的，未被覆盖。
-- [ ] 配置 provider 与 model（key 走环境变量或设置页，**不要**贴进聊天或提交进仓库）
-      - 状态（2026-10-31）：**未做，需要你本人操作**。`doctor` 明确报
-        `llm_credentials: fail ("No credentials are configured for openai")`；
-        按约定不在会话里贴 key，请在网页 Settings › Catalog 里配，或自己注入环境变量后重启容器。
+- [x] 配置 provider 与 model（key 走环境变量或设置页，**不要**贴进聊天或提交进仓库）
+      - 证据（2026-10-31）：用 `config apply` 非交互写入，key 全程只经进程环境传递
+        （`docker exec -e DT_LLM_KEY -e DT_EMB_KEY …`，命令行里只有变量名），
+        setup 文件放在仓库外的 `/root/setup-dt.json`（mode 600）。
+        `--check` → `{"ok": true, "status": "validated"}`；正式 apply →
+        `{"ok": true, "status": "applied"}`。
+        `config show`：`llm=deepseek/deepseek-flash @ https://api.deepseek.com`、
+        `embedding=aliyun/text-embedding-v4 dimension=1024`，两者 `api_key: "***"`。
+      - 模型名按实测改过：`GET https://api.deepseek.com/models` 只返回
+        `deepseek-flash`、`deepseek-v4-pro`，原计划的 `deepseek-v4.1-flash` 不存在，
+        经确认改用 `deepseek-flash`；embedding 侧 `text-embedding-v4` + `dimension=1024`
+        直连 DashScope 实测 `dim=1024`。
+      - 联调验证：`doctor --format json` 四项全 pass（`llm_config`/`llm_credentials`/
+        `llm_endpoint`/`storage`）；`doctor --online` →
+        `Provider response: The model returned a response`；应用层
+        `get_embedding_client().embed(["ping","深蓝"])` → `binding: aliyun`、
+        `model: text-embedding-v4`、`2 vectors`、`dim 1024`。
+        重启容器后 `/health/ready` 仍 200。
+      - 落盘：密钥写入 `data/user/settings/model_catalog.json`（`-rw-------`、属主 1000），
+        该路径被 `.gitignore` 的 `data/` 覆盖（`git check-ignore` 命中），**未进仓库**。
 - [x] `deeptutor module list` + `deeptutor doctor --format json`，记录模块 ready 状态
       - 证据（2026-10-31）：`python -m deeptutor_cli.main module list` → 25 个模块、
         0 个 disabled，21 个 `ready: true`；**4 个不 ready**：
         `parser-docling`（缺 `docling[xbrl]>=2.123.1`、`docling-slim[…]`）、
         `parser-liteparse`（缺 `liteparse>=2.14.2`）、`parser-markitdown`（缺 `markitdown[all]`）、
         `renderer-manim`（缺 `manim`、缺可执行 `ffmpeg`/`latex`）。
-        `doctor --format json`：`storage: pass (Writable: /app/data/user)`、
-        `llm_endpoint: pass (https://api.openai.com)`，`llm_model`/`llm_credentials: fail`，
-        `rag`/`online: skip`。
+        `doctor --format json`（此时 provider 还没配）：`storage: pass
+        (Writable: /app/data/user)`、`llm_endpoint: pass (https://api.openai.com)`，
+        `llm_model`/`llm_credentials: fail`，`rag`/`online: skip`。
+        —— 配好 provider 后已全部 pass，见本节上一条。
 - [x] 确认 `data/` 是宿主目录挂进来的（`docker inspect` 里能看到），容器重建不丢数据
       - 证据（2026-10-31）：`docker inspect deeptutor` →
         `/root/DeepTutor/data → /app/data rw=true`、
