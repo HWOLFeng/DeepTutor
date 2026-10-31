@@ -648,6 +648,25 @@ button.dt-record-toggle:focus-visible { outline: 2px solid var(--ring); outline-
    their actions still come up. */
 .dt-page-bar { display: flex; align-items: center; gap: 2px; min-height: 52px; padding: 8px 16px 8px 12px; flex-shrink: 0; }
 @media (max-width: 767px) { .dt-page-bar { display: none; } }
+
+/* ---- Books on phones: the page bar is not rendered, so the book crumb
+   falls back into the page's flex row next to the chapter sidebar and can
+   squeeze the reader to zero width. Give the crumb its own top strip and let
+   the reader (or the opening state) take the full width. The sidebar stays
+   available on tablet/desktop, where the page bar still hosts the crumb. */
+.dt-books-shell { position: relative; }
+@media (max-width: 767px) {
+  .dt-books-shell > .dt-books-crumb {
+    position: absolute; inset: 0 0 auto; z-index: 30;
+    display: flex; align-items: center; height: 44px; padding: 0 10px;
+    overflow: hidden; background: var(--background);
+    border-bottom: 1px solid var(--border);
+  }
+  .dt-books-shell > .dt-books-crumb > .dt-crumb-sep { display: none; }
+  .dt-books-shell > aside { display: none; }
+  .dt-books-shell:has(> .dt-books-crumb) > main { margin-top: 44px; }
+}
+
 .dt-crumb {
   display: inline-flex; align-items: center; gap: 7px; height: 30px; max-width: 100%; padding: 0 9px;
   border-radius: var(--dt-radius-sm); font-size: 14px; font-weight: 500; color: var(--foreground);

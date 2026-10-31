@@ -1017,10 +1017,15 @@ function BookPageInner() {
 
   const openBook = detail?.book || pendingBook || null
   return (
-    <div className="flex h-full w-full">
-      {/* 「书 / this book」: the book switches to the others from the bar. */}
+    <div className="dt-books-shell flex h-full w-full">
+      {/* 「书 / this book」: the book switches to the others from the bar.
+          On phones the page bar is not rendered, so the crumb falls back
+          into this row; the shell turns it into its own top strip instead
+          of letting it share the width with the chapter sidebar. */}
       {requestedBookId && openBook && (
-        <BookCrumb id={openBook.id} label={openBook.title || t('Untitled book')} />
+        <div className="dt-books-crumb md:contents">
+          <BookCrumb id={openBook.id} label={openBook.title || t('Untitled book')} />
+        </div>
       )}
       {displayView !== 'list' && displayView !== 'creator' && displayView !== 'opening' && (
         <BookSidebar
