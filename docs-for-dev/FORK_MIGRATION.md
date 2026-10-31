@@ -203,6 +203,9 @@ chown -R 1000:1000 /root/DeepTutor/data
 **不要删除** `data/`、`deploy/`、`/root/deeptutor-vault/team`、`/root/team-docs`、
 nginx 配置和证书，直到新镜像验证通过并完成一次完整备份。
 
+分阶段清理、备份、回滚和长期运维见
+[SERVER_CLEANUP_PLAN.md](SERVER_CLEANUP_PLAN.md)。
+
 ## 5. 验证清单
 
 - [ ] 登录页正常，`zhangsan` 可登录；
