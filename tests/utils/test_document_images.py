@@ -18,8 +18,10 @@ import pytest
 
 from deeptutor.utils.document_images import (
     MAX_INLINE_IMAGE_EDGE,
+    MAX_STORED_IMAGE_EDGE,
     ImageBudget,
     build_marker,
+    compress_image,
     extract_docx_rich,
     extract_pdf_images,
     extract_pptx_rich,
@@ -359,3 +361,52 @@ def test_scanned_page_rides_bounded_but_reads_whole(tmp_path) -> None:
         assert max(fitted.size) <= MAX_INLINE_IMAGE_EDGE
     with PILImage.open(io.BytesIO(stored[0].data)) as whole:
         assert max(whole.size) > MAX_INLINE_IMAGE_EDGE
+
+
+def _photo_bytes(size: tuple[int, int] = (3000, 1200)) -> bytes:
+    """A noisy JPEG, like a phone photo of a worksheet."""
+    rng = random.Random(7)
+    from PIL import Image as PILImage
+
+    pixels = bytes(rng.randrange(256) for _ in range(size[0] * size[1] * 3))
+    image = PILImage.frombytes("RGB", size, pixels)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=95)
+    return buffer.getvalue()
+
+
+def test_compress_image_downscales_an_oversized_photo() -> None:
+    from PIL import Image as PILImage
+
+    data = _photo_bytes()
+    ext, compressed = compress_image(".jpg", data)
+    assert ext in {".webp", ".jpg"}
+    assert len(compressed) < len(data)
+    with PILImage.open(io.BytesIO(compressed)) as image:
+        assert max(image.size) == MAX_STORED_IMAGE_EDGE
+
+
+def test_compress_image_is_lossless_for_png_diagrams() -> None:
+    from PIL import Image as PILImage
+
+    data = _png_bytes((640, 480))
+    ext, compressed = compress_image(".png", data)
+    assert ext in {".png", ".webp"}
+    with PILImage.open(io.BytesIO(data)) as before, PILImage.open(io.BytesIO(compressed)) as after:
+        assert before.convert("RGB").tobytes() == after.convert("RGB").tobytes()
+
+
+def test_compress_image_leaves_small_images_alone() -> None:
+    data = _png_bytes((60, 40))
+    assert compress_image(".png", data) == (".png", data)
+
+
+def test_compress_image_keeps_undecodable_and_animated_input() -> None:
+    assert compress_image(".jpg", b"not really an image") == (".jpg", b"not really an image")
+    from PIL import Image as PILImage
+
+    frames = [PILImage.new("RGB", (40, 40), color=value) for value in ("red", "blue")]
+    buffer = io.BytesIO()
+    frames[0].save(buffer, format="GIF", save_all=True, append_images=frames[1:])
+    data = buffer.getvalue()
+    assert compress_image(".gif", data) == (".gif", data)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+from pathlib import Path
 import time
 from typing import Literal
 import uuid
@@ -81,6 +82,9 @@ class ReviewRequest(AnswerRequest):
 
 class CommitRequest(BaseModel):
     token: str = Field(min_length=32, max_length=32, pattern=r"^[a-f0-9]+$")
+    #: Indices into the preview's ``questions`` list. ``None`` imports all of
+    #: them, which is what a client that never showed a selection expects.
+    selected: list[int] | None = Field(default=None, max_length=500)
 
 
 def _validate_timezone(timezone: str) -> tuple[float, float]:
@@ -248,25 +252,70 @@ async def import_template(format: Literal["csv", "xlsx"] = "csv"):
     )
 
 
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
+def _is_image_name(name: str) -> bool:
+    return Path(name).suffix.lower() in _IMAGE_SUFFIXES
+
+
+def _image_group_name(uploads: list[UploadFile]) -> str:
+    """The label a multi-image batch is filed under in the sidebar."""
+    if len(uploads) == 1:
+        return uploads[0].filename or "image.png"
+    first = Path(uploads[0].filename or "image.png").name
+    return f"{first} and {len(uploads) - 1} more"
+
+
 @router.post("/import/preview")
 async def import_preview(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    files: list[UploadFile] | None = File(None),
     target: Literal["bank", "mistakes"] = Form("bank"),
+    label: str = Form(""),
 ):
-    try:
-        data = await file.read(MAX_BYTES + 1)
-        filename = file.filename or ""
-        suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-        if suffix in {"pdf", "docx"}:
-            from deeptutor.services.practice.document_import import preview_document
+    """Preview one table/PDF/DOCX file, or a batch of question images.
 
-            parsed = await preview_document(data, filename)
+    Several images arrive as ``files`` and become one staged import, so the
+    sidebar aggregates them as a single group instead of one row per photo.
+    """
+    uploads = ([file] if file is not None else []) + list(files or [])
+    if not uploads:
+        raise HTTPException(422, "Select a file or images to import")
+    images_only = all(_is_image_name(upload.filename or "") for upload in uploads)
+    if len(uploads) > 1 and not images_only:
+        raise HTTPException(
+            422, "When importing several files at once, all of them must be images"
+        )
+    try:
+        if images_only:
+            from deeptutor.services.practice.document_import import (
+                MAX_IMAGE_IMPORT_BYTES,
+                preview_images,
+            )
+
+            payload = []
+            for upload in uploads:
+                data = await upload.read(MAX_IMAGE_IMPORT_BYTES + 1)
+                payload.append((data, upload.filename or "image.png"))
+            parsed = await preview_images(payload)
+            filename = label.strip()[:160] or _image_group_name(uploads)
         else:
-            parsed = await asyncio.to_thread(preview, data, filename)
+            upload = uploads[0]
+            data = await upload.read(MAX_BYTES + 1)
+            filename = upload.filename or ""
+            suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+            if suffix in {"pdf", "docx"}:
+                from deeptutor.services.practice.document_import import preview_document
+
+                parsed = await preview_document(data, filename)
+            else:
+                parsed = await asyncio.to_thread(preview, data, filename)
     except (ValueError, UnicodeError, OSError, zipfile.BadZipFile, KeyError, ParseError) as exc:
         raise HTTPException(422, str(exc)) from exc
     finally:
-        await file.close()
+        for upload in uploads:
+            await upload.close()
     token = None
     if not parsed["errors"]:
         await _persist_question_images(parsed["questions"])
@@ -281,6 +330,10 @@ async def import_preview(
         "total": len(parsed["questions"]) + len(parsed["errors"]),
         "valid": len(parsed["questions"]),
         "errors": parsed["errors"],
+        # The full list, not a sample: OCR is probabilistic, so the learner
+        # has to be able to uncheck the rows that came out wrong. ``samples``
+        # stays for older clients that only render a preview strip.
+        "questions": parsed["questions"],
         "samples": parsed["questions"][:5],
     }
 
@@ -329,7 +382,9 @@ async def _persist_question_images(questions: list[dict]) -> None:
 async def import_commit(payload: CommitRequest):
     try:
         return await asyncio.to_thread(
-            PracticeStore(get_sqlite_session_store().db_path).commit_import, payload.token
+            PracticeStore(get_sqlite_session_store().db_path).commit_import,
+            payload.token,
+            payload.selected,
         )
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc

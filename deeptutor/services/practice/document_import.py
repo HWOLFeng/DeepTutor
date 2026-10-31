@@ -18,6 +18,7 @@ import asyncio
 import base64
 import io
 import json
+import logging
 from pathlib import Path
 import re
 from typing import Any
@@ -25,9 +26,13 @@ from typing import Any
 from deeptutor.utils.document_images import (
     ImageBudget,
     build_marker,
+    compress_image,
     extract_docx_rich,
 )
 
+# ``importing`` owns the canonical validators; importing the module (not the
+# symbols) keeps this table in one place without a circular value import.
+from . import importing as _importing
 from .importing import (
     MAX_IMAGE_BYTES,
     MAX_IMAGES_PER_QUESTION,
@@ -35,14 +40,27 @@ from .importing import (
     MAX_TOTAL_IMAGES,
 )
 
-# ``importing`` owns the canonical validators; importing the module (not the
-# symbols) keeps this table in one place without a circular value import.
-from . import importing as _importing
+logger = logging.getLogger(__name__)
 
 MAX_VISION_PAGES = 20
 MAX_TEXT_CHARS = 60_000
 MAX_FIGURE_VERIFICATIONS = 20
+#: A dense page (a sheet of net diagrams) needs room for every row.
+MAX_PAGE_TOKENS = 8000
 VISION_DPI = 150
+
+# Several screenshots of one worksheet import as one batch, so the caps cover
+# the group rather than a single page.
+MAX_IMPORT_IMAGES = 20
+MAX_IMAGE_IMPORT_BYTES = 8 * 1024 * 1024
+MAX_IMAGE_IMPORT_TOTAL_BYTES = 24 * 1024 * 1024
+_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
 
 _FIGURE_VERIFY_PROMPT = """You audit one figure crop attached to an exam question.
 The image is a composite: LEFT = the full page, RIGHT = the crop currently used.
@@ -67,32 +85,86 @@ Rules:
 QUESTION:
 """
 
-_SCHEMA_PROMPT = """You convert question papers and mistake notebooks into a JSON array.
-Each element: {"question": str,
- "question_type": "single_choice"|"multi_choice"|"true_false"|"short_answer",
- "options": {"A": str, "B": str, "C": str, "D": str},
- "correct_answer": str, "explanation": str, "tags": [str],
- "user_answer": str, "figure_boxes": [[x0,y0,x1,y1], ...]}
+_SCHEMA_PROMPT = """You transcribe ONE page of a Chinese school worksheet into practice questions.
+The page may hold printed text, the learner's handwriting, teacher ticks/corrections and printed answers.
+
+Return ONLY a JSON array. One element per question:
+{"question": str, "question_type": "single_choice"|"multi_choice"|"true_false"|"short_answer",
+ "options": {"A": str, ...}, "correct_answer": str, "answer_source": "printed"|"solved",
+ "explanation": str, "user_answer": str, "tags": [str],
+ "page_type": "exercises"|"knowledge_card"|"answer_key",
+ "figure_kind": "none"|"geometry"|"graph"|"net"|"table"|"photo"|"text",
+ "figure_boxes": [[x0,y0,x1,y1], ...], "figure_svg": str|null}
+
+ROLES — the rule that matters most
+- PRINTED text is the question. HANDWRITING is never part of it.
+- A printed blank the learner filled in stays a blank: "（　　）" or "＿＿＿＿".
+  Never copy the handwritten word into the sentence.
+- Handwriting (filled blanks, circled numbers, ticks, crosses, 订正 lines, worked
+  steps) goes to user_answer — only the final answer for THIS question, not the
+  working. Teacher marks are dropped.
+- If the page prints its own answers (知识卡 / 答案页), copy them into
+  correct_answer with answer_source="printed"; leave user_answer empty unless the
+  learner wrote something.
+
+QUESTION
+- Keep formulas, units, punctuation and sub-question order exactly; drop the item
+  number ("3.") and page headers/footers/logos.
+- Every formula in inline LaTeX $...$: \\frac{}{}, \\sqrt{}, ^{}, \\times, \\div.
+  Units go outside the math.
+- Choice questions: transcribe every printed option (A–J), body only, no letter
+  prefix. When the choices are drawn as a figure (①②③④ in a table), write them
+  as options and leave figure_boxes empty.
+- 判断题: correct_answer is "T" or "F" (对/√ → T, 错/× → F).
+- A fill-in with several blanks: join the answers in order with "; ".
+- Never invent a question, option, answer, label or number.
+
+ANSWERS
+- answer_source="printed" when the page prints the answer; otherwise solve it
+  yourself and use answer_source="solved".
+- explanation: one or two sentences of reasoning, not a repeat of the answer.
+
+FIGURES
+- figure_boxes: tight normalized [x0,y0,x1,y1] (0-1, origin top-left) around a
+  figure THIS question needs. Never include question text, options, headers or
+  logos; never box the whole page.
+- figure_kind="table": transcribe the table into the question text AND return
+  its box, so a misread number can still be checked against the photograph.
+- For geometry / coordinate / net diagrams also return figure_svg: a
+  self-contained SVG (no scripts, no external images, labels as <text>, viewBox
+  matching the figure) that redraws the PRINTED figure with every label,
+  dimension and vertex.
+- Two questions on one page may share an identical printed stem; the figure is
+  what distinguishes them, so give each its own box and never merge them.
+- Keep figure_svg under 1200 characters, and omit it for photographs, tables
+  and anything you cannot redraw faithfully.
+
+Return at most 40 questions per page, and [] when the page holds no question.
+"""
+
+_ANSWER_CHECK_PROMPT = """You check the answers of questions extracted from ONE worksheet page.
+The page is attached. For every item below: solve it yourself from the page, then
+compare your answer with the given one.
+
+Return ONLY a JSON array:
+[{"index": 0, "answer": "<your answer>", "agrees": true|false, "reason": "<short>"}]
+
 Rules:
-- Transcribe faithfully in the source language; keep formulas, units and sub-questions.
-- Drop page headers, logos, footers, "第N题" headings and the item number ("10.").
-- Options hold the content WITHOUT the letter prefix; omit absent options.
-- correct_answer: choice letter(s), comma-joined for multi-select, "true"/"false",
-  or answer text. Solve it yourself when the source does not print the answer.
-- user_answer: when a tick/check mark selects an option, put that letter here.
-- explanation: a concise solution. tags: 1-3 short topic labels.
-- figure_boxes: normalized [x0,y0,x1,y1] (0-1, origin top-left) around a figure
-  that belongs to THIS question; use [] when there is no figure. Never box the
-  whole page, the header or a logo.
-- Return [] when the page has no questions. Never invent questions.
+- Answer in the shape the question expects: option letters ("A", "A,C" for
+  multi-select), "T"/"F" for 判断题, the text for 填空, blanks joined by "; ".
+- If the page prints the answer, use the printed one.
+- Never rewrite a question, never drop an index, never add an item.
+- agrees=false only when your answer and the given one are different answers,
+  not merely written differently.
 """
 
 _MARKER_RE = re.compile(r"\[图片\s*(\d+):\s*([^\]\s]+)\]")
-_OPTION_RE = re.compile(r"^\s*([A-D])\s*[.、．:：)]\s*(.+?)\s*$", re.M)
+_OPTION_RE = re.compile(r"^\s*([A-J])\s*[.、．:：)]\s*(.+?)\s*$", re.M)
 _ANSWER_RE = re.compile(r"^\s*(?:参考)?答案\s*[:：]?\s*(.+?)\s*$", re.M)
 _EXPLAIN_RE = re.compile(r"^\s*(?:解析|分析|解答|详解)\s*[:：]?\s*(.+?)\s*$", re.M)
+# A line-leading "3." starts a question; "1.5米" is a number, not a number.
 _SPLIT_RE = re.compile(
-    r"(?m)^\s*(?:第\s*\d+\s*题[^\n]*|\d{1,3}\s*[.、．]|（\s*\d{1,3}\s*）)\s*"
+    r"(?m)^\s*(?:第\s*\d+\s*题[^\n]*|\d{1,3}\s*[.、．](?!\d)|（\s*\d{1,3}\s*）)\s*"
 )
 
 
@@ -100,7 +172,13 @@ class DocumentImportError(ValueError):
     """A PDF/DOCX cannot be turned into practice rows."""
 
 
-def _image_record(data: bytes, name: str) -> dict:
+def _image_record(data: bytes, name: str, *, optimise: bool = True) -> dict:
+    if optimise:
+        # Crops, embedded figures and photos are stored once, so this is the
+        # place that keeps the question bank's image footprint down. Uploads
+        # are already compressed for the model call and pass optimise=False.
+        suffix, data = compress_image(Path(name).suffix, data)
+        name = f"{Path(name).stem or 'image'}{suffix}"
     mime = "image/png"
     suffix = Path(name).suffix.lower()
     mime = {
@@ -219,12 +297,21 @@ def _body_text(text: str) -> str:
     return "\n".join(lines)
 
 
-def _looks_scanned(text: str, pages: int, has_images: bool, kind: str) -> bool:
+def _looks_scanned(text: str, pages: int, kind: str) -> bool:
+    """Whether a PDF has to be read as page images instead of as text.
+
+    The presence of an image is the wrong signal: a scanned page is one
+    full-page image, which the header/footer filter drops before it can set a
+    flag, while a text page can legitimately carry a large background picture.
+    Judge the text layer instead, and treat CID-mangled output (fonts without a
+    ToUnicode map) as no text at all.
+    """
     if kind != "pdf":
         return False
-    if not has_images:
-        return False
-    return len(_body_text(text)) < 30 * max(pages, 1)
+    clean = _strip_markers(text)
+    if "(cid:" in clean[:4000]:
+        return True
+    return len(_body_text(clean)) < 30 * max(pages, 1)
 
 
 def _regex_rows(text: str) -> list[dict]:
@@ -298,25 +385,168 @@ async def _ask_text_model(text: str) -> list[dict]:
     return _parse_json_rows(reply)
 
 
-async def _ask_vision_model(page_png: bytes) -> list[dict]:
+def _active_model_vision() -> object:
+    """The settings picker's vision verdict for the active model, when known.
+
+    A freshly configured vision model may be declared only in the catalog and
+    not in the process-global capability table. Reading the picker's verdict
+    here keeps the importer from vetoing a model the user was told is
+    vision-capable.
+    """
+    try:
+        from deeptutor.services.config.model_catalog import get_model_catalog_service
+        from deeptutor.services.model_selection.llm import list_llm_options
+
+        for option in list_llm_options(get_model_catalog_service().load())["options"]:
+            if option.get("is_active_default") and type(option.get("supports_vision")) is bool:
+                return option["supports_vision"]
+    except Exception:
+        return None
+    return None
+
+
+def _client_supports_vision(client: Any) -> bool:
+    """Vision support for the client actually used, the picker's verdict first."""
+    from deeptutor.services.llm.capabilities import supports_vision_declared
+
+    config = getattr(client, "config", None)
+    declared = _active_model_vision()
+    if supports_vision_declared(
+        declared, str(getattr(config, "binding", "") or ""), getattr(config, "model", None)
+    ):
+        return True
+    return bool(client.supports_multimodal_images())
+
+
+def _vision_unavailable_error(client: Any, subject: str) -> DocumentImportError:
+    model = str(getattr(getattr(client, "config", None), "model", "") or "the active model")
+    return DocumentImportError(
+        f"{model} cannot read images, so {subject}. Switch to a vision-capable model in "
+        "Settings → Models, or import a text-based PDF/DOCX."
+    )
+
+
+async def _ask_vision_model(
+    page_png: bytes,
+    *,
+    mime_type: str = "image/png",
+    filename: str = "page.png",
+) -> list[dict]:
     client = _llm_client()
-    if not client.supports_multimodal_images():
-        raise DocumentImportError(
-            "This PDF has no text layer and the active model is not vision-capable. "
-            "Use a vision model or import a text-based PDF/DOCX."
-        )
+    if not _client_supports_vision(client):
+        raise _vision_unavailable_error(client, "these pages cannot be imported")
     reply = await asyncio.wait_for(
         client.complete(
             _SCHEMA_PROMPT,
             system_prompt="Return only JSON.",
             image_data=base64.b64encode(page_png).decode(),
-            image_mime_type="image/png",
-            image_filename="page.png",
-            max_tokens=4000,
+            image_mime_type=mime_type,
+            image_filename=filename,
+            max_tokens=MAX_PAGE_TOKENS,
+        ),
+        timeout=180,
+    )
+    try:
+        return _parse_json_rows(reply)
+    except ValueError:
+        # A dense page (11 net diagrams, each with its own SVG) can exceed the
+        # reply budget and arrive truncated. Re-ask once without redraws rather
+        # than losing every question on the page.
+        logger.warning("vision reply for %s was not valid JSON; retrying without SVGs", filename)
+        retry = await asyncio.wait_for(
+            client.complete(
+                _SCHEMA_PROMPT
+                + "\nIMPORTANT: the previous reply was cut off. Return every row again "
+                "with \"figure_svg\": null and no commentary.",
+                system_prompt="Return only JSON.",
+                image_data=base64.b64encode(page_png).decode(),
+                image_mime_type=mime_type,
+                image_filename=filename,
+                max_tokens=MAX_PAGE_TOKENS,
+            ),
+            timeout=180,
+        )
+        return _parse_json_rows(retry)
+
+
+MAX_ANSWER_CHECKS = 40
+
+
+async def _check_answers(
+    rows: list[dict],
+    page_png: bytes,
+    *,
+    mime_type: str = "image/png",
+    filename: str = "page.png",
+) -> list[dict]:
+    """Second opinion on every answer the model solved itself.
+
+    A transcription pass that guesses a cube-net answer can contradict the
+    next page's guess for the same figure. One extra call asks the model to
+    solve the listed questions from the page again; a disagreement is surfaced
+    to the learner instead of being silently trusted.
+    """
+    if not rows or len(rows) > MAX_ANSWER_CHECKS:
+        return []
+    client = _llm_client()
+    if not _client_supports_vision(client):
+        return []
+    listing = [
+        {
+            "index": index,
+            "question": str(row.get("question") or ""),
+            "question_type": str(row.get("question_type") or ""),
+            "options": row.get("options") or {},
+            "answer": str(row.get("correct_answer") or ""),
+            "answer_source": str(row.get("answer_source") or ""),
+        }
+        for index, row in enumerate(rows)
+    ]
+    reply = await asyncio.wait_for(
+        client.complete(
+            _ANSWER_CHECK_PROMPT + "\n\nQUESTIONS:\n" + json.dumps(listing, ensure_ascii=False),
+            system_prompt="Return only JSON.",
+            image_data=base64.b64encode(page_png).decode(),
+            image_mime_type=mime_type,
+            image_filename=filename,
+            max_tokens=3000,
         ),
         timeout=180,
     )
     return _parse_json_rows(reply)
+
+
+def _merge_verdicts(rows: list[dict], verdicts: list[dict]) -> None:
+    """Attach the second opinion to the rows it belongs to.
+
+    The original answer is never replaced on a disagreement: two guesses are
+    not evidence, and quietly swapping one for the other is how a wrong answer
+    gets laundered into the question bank. Only an *empty* answer is filled in,
+    and the disagreement is recorded for the preview to show.
+    """
+    answers_by_index: dict[int, dict] = {}
+    for verdict in verdicts:
+        try:
+            index = int(verdict.get("index"))
+        except (TypeError, ValueError):
+            continue
+        answers_by_index[index] = verdict
+    for index, row in enumerate(rows):
+        verdict = answers_by_index.get(index)
+        if verdict is None:
+            continue
+        answer = str(verdict.get("answer") or "").strip()
+        agrees = verdict.get("agrees")
+        if agrees is False:
+            row["answer_conflict"] = True
+            row["verdict_answer"] = answer
+            # A row whose own answer is blank has nothing to lose: use the
+            # second opinion rather than importing a question nobody can grade.
+            if not str(row.get("correct_answer") or "").strip() and answer:
+                row["correct_answer"] = answer
+        elif agrees is True and answer:
+            row["answer_verified"] = True
+        row["verdict_answer"] = row.get("verdict_answer") or answer
 
 
 def _render_pdf_pages(data: bytes, limit: int = MAX_VISION_PAGES) -> list[bytes]:
@@ -479,6 +709,10 @@ async def _refine_figures(
     """Verify each cropped figure; accept a re-crop/redraw only if it also verifies."""
     for question in questions:
         for index, image in enumerate(list(question.get("question_images") or [])):
+            if image.get("_redrawn"):
+                # A model-drawn figure has no pixel relationship with the page;
+                # the completeness check would only thrash it.
+                continue
             if budget[0] <= 0:
                 return
             budget[0] -= 1
@@ -535,6 +769,16 @@ async def _refine_figures(
 def _attach_images(row: dict, images: dict[str, dict], page_png: bytes | None = None) -> None:
     records: list[dict] = []
     seen: set[str] = set()
+    # A model-drawn SVG is accepted in place of a crop. It is crisp and
+    # reflows, which is what a geometry figure wants; the preview shows it
+    # before the learner commits, and a bad one is simply deselected.
+    svg = row.get("figure_svg")
+    if isinstance(svg, str) and svg.strip():
+        redrawn = _svg_to_png(svg)
+        if redrawn:
+            record = _image_record(redrawn, "figure-redrawn.png")
+            record["_redrawn"] = True
+            records.append(record)
     for field in ("question", "explanation"):
         for name in _marker_names(str(row.get(field) or "")):
             if name in seen or name not in images:
@@ -547,7 +791,7 @@ def _attach_images(row: dict, images: dict[str, dict], page_png: bytes | None = 
             continue
         seen.add(name)
         records.append(dict(images[name]))
-    if page_png is not None:
+    if page_png is not None and not any(record.get("_redrawn") for record in records):
         for index, box in enumerate(row.get("figure_boxes") or []):
             crop = _crop_figure(page_png, box)
             if crop is None:
@@ -563,26 +807,145 @@ def _attach_images(row: dict, images: dict[str, dict], page_png: bytes | None = 
 
 
 def _prepare_rows(rows: list[dict], images: dict[str, dict], page_png: bytes | None = None) -> dict:
+    from .quality import classify_attempt, strip_answer_leak
+
     questions, errors = [], []
     for number, row in enumerate(rows, 2):
         try:
             _attach_images(row, images, page_png)
+            question = str(row.get("question") or "")
+            if not _strip_markers(question):
+                continue
+            options = row.get("options") or {}
             raw = {
-                "question": row.get("question") or "",
+                "question": question,
                 "question_type": row.get("question_type") or "",
-                "options": row.get("options") or {},
+                "options": options,
                 "correct_answer": row.get("correct_answer") or "",
                 "explanation": row.get("explanation") or "",
                 "tags": row.get("tags") or [],
                 "user_answer": row.get("user_answer") or "",
                 "__images__": row.get("question_images") or [],
             }
-            if not _strip_markers(raw["question"]):
-                continue
-            questions.append(_importing.normalize_question(raw))
+            cleaned, removed = strip_answer_leak(
+                question,
+                [str(raw["correct_answer"]), str(raw["user_answer"])],
+                question_type=str(raw["question_type"]),
+                options=options if isinstance(options, dict) else {},
+            )
+            raw["question"] = cleaned
+            item = _importing.normalize_question(raw)
+            item["leaks"] = removed
+            item["attempt"] = classify_attempt(
+                item["user_answer"],
+                item["correct_answer"],
+                item["question_type"],
+                item["options"],
+            )
+            item["answer_source"] = str(row.get("answer_source") or "solved")
+            item["answer_conflict"] = bool(row.get("answer_conflict"))
+            item["verdict_answer"] = str(row.get("verdict_answer") or "")
+            item["page_type"] = str(row.get("page_type") or "exercises")
+            questions.append(item)
         except (ValueError, TypeError) as exc:
             errors.append({"row": number, "message": str(exc)})
     return {"questions": questions, "errors": errors}
+
+
+async def _import_vision_pages(
+    pages: list[tuple[bytes, str, str]],
+    *,
+    keep_source_image: bool = False,
+) -> dict:
+    """Turn rendered pages or user images into rows, one model call per page.
+
+    ``pages`` holds ``(bytes, mime_type, display name)``. A page that yields a
+    single question with no marked figure keeps its own picture, so a photo of
+    one exercise still shows the exercise after import.
+    """
+    questions: list[dict] = []
+    errors: list[dict] = []
+    budget = [MAX_FIGURE_VERIFICATIONS]
+    for number, (data, mime, name) in enumerate(pages, 1):
+        try:
+            rows = await _ask_vision_model(data, mime_type=mime, filename=name)
+        except DocumentImportError:
+            raise
+        except Exception as exc:
+            errors.append({"row": number, "message": f"{name}: {exc}"})
+            continue
+        if rows and any(str(row.get("answer_source") or "") != "printed" for row in rows):
+            try:
+                verdicts = await _check_answers(rows, data, mime_type=mime, filename=name)
+            except Exception:
+                # A verification call that fails must not cost the page its rows.
+                logger.warning("answer check failed for %s", name, exc_info=True)
+                verdicts = []
+            _merge_verdicts(rows, verdicts)
+        prepared = _prepare_rows(rows, {}, data)
+        await _refine_figures(prepared["questions"], data, budget)
+        for error in prepared["errors"]:
+            error["row"] = number * 1000 + error["row"]
+        if (
+            keep_source_image
+            and len(prepared["questions"]) == 1
+            and not prepared["questions"][0]["question_images"]
+        ):
+            prepared["questions"][0]["question_images"] = [
+                _image_record(data, name, optimise=False)
+            ]
+        questions.extend(prepared["questions"])
+        errors.extend(prepared["errors"])
+    if len(questions) > 500:
+        raise ValueError("Import at most 500 questions at a time")
+    return {"questions": questions, "errors": errors}
+
+
+def _check_image(data: bytes, name: str) -> None:
+    """Reject renamed or corrupt files before spending a model call on them."""
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.verify()
+    except Exception as exc:
+        raise ValueError(f"{name} is not a readable PNG, JPEG, WebP or GIF image") from exc
+
+
+async def preview_images(images: list[tuple[bytes, str]]) -> dict:
+    """Import several screenshots or photos of questions as one batch."""
+    if not images:
+        raise ValueError("Select at least one image")
+    if len(images) > MAX_IMPORT_IMAGES:
+        raise ValueError(f"Import at most {MAX_IMPORT_IMAGES} images at a time")
+    pages: list[tuple[bytes, str, str]] = []
+    total = 0
+    for data, name in images:
+        suffix = Path(name).suffix.lower()
+        if suffix not in _IMAGE_MIME:
+            raise ValueError(f"{name}: use a PNG, JPEG, WebP or GIF image")
+        if not data:
+            raise ValueError(f"{name} is empty")
+        if len(data) > MAX_IMAGE_IMPORT_BYTES:
+            raise ValueError(
+                f"{name} is larger than {MAX_IMAGE_IMPORT_BYTES // (1024 * 1024)} MB"
+            )
+        _check_image(data, name)
+        compressed_ext, compressed = await asyncio.to_thread(compress_image, suffix, data)
+        name = f"{Path(name).stem or 'image'}{compressed_ext}"
+        total += len(compressed)
+        pages.append((compressed, _IMAGE_MIME[compressed_ext], name))
+    if total > MAX_IMAGE_IMPORT_TOTAL_BYTES:
+        raise ValueError(
+            f"These images total more than {MAX_IMAGE_IMPORT_TOTAL_BYTES // (1024 * 1024)} MB"
+        )
+    client = _llm_client()
+    if not _client_supports_vision(client):
+        raise _vision_unavailable_error(client, "these images cannot be imported")
+    parsed = await _import_vision_pages(pages, keep_source_image=True)
+    if not parsed["questions"] and not parsed["errors"]:
+        raise ValueError("No questions were found in these images")
+    return parsed
 
 
 async def preview_document(data: bytes, filename: str) -> dict:
@@ -590,40 +953,40 @@ async def preview_document(data: bytes, filename: str) -> dict:
         raise ValueError("Choose a non-empty file up to 5 MB")
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
-        text, images, pages, has_images = await asyncio.to_thread(_extract_pdf_rich, data)
+        text, images, pages, _has_images = await asyncio.to_thread(_extract_pdf_rich, data)
     elif suffix == ".docx":
-        text, images, pages, has_images = await asyncio.to_thread(_extract_docx_rich, data)
+        text, images, pages, _has_images = await asyncio.to_thread(_extract_docx_rich, data)
     else:
         raise ValueError("Document import supports .pdf and .docx")
 
-    if _looks_scanned(text, pages, has_images, suffix.lstrip(".")):
+    text_rows = _regex_rows(text)
+    # A sparse text layer can still be parsed (a one-question PDF with a big
+    # figure, for instance), so only page images are used when the text itself
+    # cannot carry questions. That keeps a text-based PDF off the vision path
+    # even when the active model cannot read images.
+    if _looks_scanned(text, pages, suffix.lstrip(".")) and not text_rows:
+        client = _llm_client()
+        if not _client_supports_vision(client):
+            # Fail before rendering 20 pages, and name the model the user has
+            # to change instead of claiming the PDF has no text at all.
+            raise _vision_unavailable_error(
+                client, "this image-only PDF (no usable text layer) cannot be imported"
+            )
         page_pngs = await asyncio.to_thread(_render_pdf_pages, data)
-        questions, errors = [], []
-        verification_budget = [MAX_FIGURE_VERIFICATIONS]
-        for page_number, page_png in enumerate(page_pngs, 1):
-            try:
-                rows = await _ask_vision_model(page_png)
-            except DocumentImportError:
-                raise
-            except Exception as exc:
-                errors.append({"row": page_number, "message": f"Page {page_number}: {exc}"})
-                continue
-            prepared = _prepare_rows(rows, {}, page_png)
-            await _refine_figures(prepared["questions"], page_png, verification_budget)
-            for error in prepared["errors"]:
-                error["row"] = page_number * 1000 + error["row"]
-            questions.extend(prepared["questions"])
-            errors.extend(prepared["errors"])
-        if not questions and not errors:
+        parsed = await _import_vision_pages(
+            [
+                (page_png, "image/png", f"page-{number:02d}.png")
+                for number, page_png in enumerate(page_pngs, 1)
+            ]
+        )
+        if not parsed["questions"] and not parsed["errors"]:
             raise ValueError("The PDF contains no questions")
-        if len(questions) > 500:
-            raise ValueError("Import at most 500 questions at a time")
-        return {"questions": questions, "errors": errors}
+        return parsed
 
     if not _body_text(text):
         raise ValueError("The document contains no readable text or questions")
 
-    rows = _regex_rows(text)
+    rows = text_rows
     missing_answer = any(not str(row.get("correct_answer") or "").strip() for row in rows)
     errors: list[dict] = []
     if rows and not missing_answer:

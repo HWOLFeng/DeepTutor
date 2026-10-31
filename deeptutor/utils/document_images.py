@@ -319,6 +319,99 @@ def fit_inline_image(ext: str, data: bytes, *, max_edge: int) -> tuple[str, byte
     return ".jpg", shrunk
 
 
+#: Long edge kept for a stored question image. Model input tokens follow pixel
+#: dimensions, not file size, and providers downscale toward ~1300 px before
+#: billing, so this bound is what keeps a photo's token cost bounded as well as
+#: its storage footprint.
+MAX_STORED_IMAGE_EDGE = 2000
+#: Re-encoding a tiny image costs more quality than the bytes it could save.
+MIN_RECOMPRESS_BYTES = 64 * 1024
+STORED_IMAGE_WEBP_QUALITY = 92
+
+
+def _encode_candidates(image: Any, *, lossless: bool) -> list[tuple[str, bytes]]:
+    """WebP/PNG/JPEG attempts for one image; the caller keeps the smallest."""
+    candidates: list[tuple[str, bytes]] = []
+    if lossless:
+        buffer = io.BytesIO()
+        image.save(buffer, format="WEBP", lossless=True, method=4)
+        candidates.append((".webp", buffer.getvalue()))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG", optimize=True)
+        candidates.append((".png", buffer.getvalue()))
+        return candidates
+    rgb = image.convert("RGB")
+    for quality in (STORED_IMAGE_WEBP_QUALITY, STORED_IMAGE_WEBP_QUALITY - 6):
+        buffer = io.BytesIO()
+        rgb.save(buffer, format="WEBP", quality=quality, method=4)
+        candidates.append((".webp", buffer.getvalue()))
+    buffer = io.BytesIO()
+    rgb.save(buffer, format="JPEG", quality=90, optimize=True)
+    candidates.append((".jpg", buffer.getvalue()))
+    return candidates
+
+
+def compress_image(
+    ext: str,
+    data: bytes,
+    *,
+    max_edge: int = MAX_STORED_IMAGE_EDGE,
+    min_bytes: int = MIN_RECOMPRESS_BYTES,
+) -> tuple[str, bytes]:
+    """Shrink a stored question image with as little quality loss as possible.
+
+    Photos are downscaled to *max_edge* and re-encoded as WebP at a
+    visually-lossless quality; screenshots, diagrams, crops and anything with
+    transparency are tried losslessly first (WebP, then PNG). The original
+    bytes win whenever the candidate is not smaller, so this optimisation can
+    never make an image worse than it arrived.
+
+    Token usage is *not* reduced by smaller bytes: the provider bills by pixel
+    dimensions and downsizes large images itself. The long-edge bound is what
+    keeps that cost from growing with a camera's megapixels.
+    """
+    if not data:
+        return ext, data
+    ext = _normalise_ext(ext)
+    if ext in {".gif", ".svg"}:
+        return ext, data
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:  # pragma: no cover - Pillow ships with the image extras
+        return ext, data
+    try:
+        with Image.open(io.BytesIO(data)) as probe:
+            if getattr(probe, "n_frames", 1) > 1:
+                return ext, data
+            width, height = probe.size
+            if width * height > MAX_INLINE_FIT_PIXELS:
+                return ext, data
+            oversized = max_edge > 0 and max(width, height) > max_edge
+            if not oversized and len(data) <= min_bytes:
+                return ext, data
+            if not oversized and ext == ".webp":
+                # Already a compact WebP; a second lossy pass would only add
+                # generation loss.
+                return ext, data
+            probe.load()
+            image = ImageOps.exif_transpose(probe)
+            if oversized:
+                image.thumbnail((max_edge, max_edge), Image.LANCZOS, reducing_gap=2.0)
+            lossless = ext == ".png" or image.mode in {"RGBA", "LA"} or (
+                image.mode == "P" and "transparency" in image.info
+            )
+            candidates = _encode_candidates(image, lossless=lossless)
+    except Exception:
+        logger.debug("image compression failed; keeping the original", exc_info=True)
+        return ext, data
+    if not candidates:
+        return ext, data
+    best_ext, best = min(candidates, key=lambda item: len(item[1]))
+    if not best or (len(best) >= len(data) and not oversized):
+        return ext, data
+    return best_ext, best
+
+
 def _normalise_ext(ext: str) -> str:
     ext = (ext or "").lower()
     if ext == ".jpeg":
@@ -695,6 +788,7 @@ __all__ = [
     "build_marker",
     "find_markers",
     "fit_inline_image",
+    "compress_image",
     "image_index_from_name",
     "reading_image_budget",
     "extract_docx_rich",

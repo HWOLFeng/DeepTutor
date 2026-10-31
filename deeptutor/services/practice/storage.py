@@ -22,6 +22,23 @@ class ReviewConflict(ValueError):
     """A different tab or source changed this question since it was opened."""
 
 
+def _import_result(question: dict, target: str) -> str:
+    """The result an imported row gets, evidence first.
+
+    ``attempt`` is computed at preview time by comparing the learner's answer
+    with the correct one. A demonstrated correct answer wins over the folder
+    the file was dropped in; ``unknown`` (a written solution that cannot be
+    compared) falls back to the folder, because only the learner knows whether
+    they got it wrong.
+    """
+    attempt = str(question.get("attempt") or "unknown")
+    if attempt == "correct":
+        return "correct"
+    if attempt == "incorrect":
+        return "incorrect"
+    return "incorrect" if target == "mistakes" else "ungraded"
+
+
 def initialize_practice(conn: sqlite3.Connection) -> None:
     existing = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE name='practice_review_state'"
@@ -322,7 +339,15 @@ class PracticeStore:
             )
         return token
 
-    def commit_import(self, token: str) -> dict:
+    def commit_import(self, token: str, selected: list[int] | None = None) -> dict:
+        """Write the staged questions the learner kept.
+
+        ``selected`` holds indices into the staged list (the order the preview
+        showed). ``None`` means "all of them", which keeps older clients and
+        the retry path working. An entry that the model answered and the
+        learner also answered correctly is imported as a correct attempt, not
+        as a mistake: the target folder is a preference, not evidence.
+        """
         now = time.time()
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -337,21 +362,33 @@ class PracticeStore:
                 raise ValueError("Import preview expired. Select the file again.")
             payload = json.loads(staged["payload_json"])
             questions = payload if isinstance(payload, list) else payload["questions"]
+            if selected is not None:
+                indices = sorted({int(index) for index in selected})
+                if not indices:
+                    raise ValueError("Select at least one question to import.")
+                if indices[0] < 0 or indices[-1] >= len(questions):
+                    raise ValueError("The selection does not match this import. Preview again.")
+                questions = [questions[index] for index in indices]
             # All practice-file imports share one durable origin namespace.
             # ``question_id`` is a content hash, so re-importing the same
             # question remains idempotent without tying ownership to an
             # ephemeral preview receipt or a synthetic chat session.
             origin_ref = "practice-import"
             created, skipped = 0, 0
+            mistakes = 0
             for question in questions:
+                result = _import_result(question, staged["target"])
+                if result == "incorrect":
+                    mistakes += 1
                 cursor = conn.execute(
                     """
                     INSERT OR IGNORE INTO notebook_entries(
                         session_id, origin_type, origin_ref, question_id, question, question_type,
                         options_json, correct_answer, explanation, difficulty, user_answer,
                         question_images_json, source,
-                        result, assessment_type, created_at, updated_at, material_title, material_id)
-                    VALUES(NULL, 'external_import', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, 'quiz', ?, ?, ?, ?)
+                        is_correct, result, assessment_type, created_at, updated_at,
+                        material_title, material_id)
+                    VALUES(NULL, 'external_import', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, ?, 'quiz', ?, ?, ?, ?)
                 """,
                     (
                         origin_ref,
@@ -364,7 +401,8 @@ class PracticeStore:
                         question["difficulty"],
                         question["user_answer"],
                         json.dumps(question.get("question_images") or [], ensure_ascii=False),
-                        "incorrect" if staged["target"] == "mistakes" else "ungraded",
+                        1 if result == "correct" else 0,
+                        result,
                         now,
                         now,
                         staged["filename"],
@@ -390,7 +428,7 @@ class PracticeStore:
                             entry_id,
                         ),
                     )
-                if staged["target"] == "mistakes":
+                if result == "incorrect":
                     conn.execute(
                         "INSERT OR IGNORE INTO practice_review_state(entry_id, first_wrong_at, due_at) VALUES(?, ?, ?)",
                         (entry_id, now, now + DAY),
@@ -410,7 +448,12 @@ class PracticeStore:
                         "INSERT OR IGNORE INTO notebook_entry_categories(entry_id, category_id) SELECT ?, id FROM notebook_categories WHERE name=?",
                         (entry_id, tag),
                     )
-            result = {"created": created, "duplicates": skipped, "total": created + skipped}
+            result = {
+                "created": created,
+                "duplicates": skipped,
+                "total": created + skipped,
+                "mistakes": mistakes,
+            }
             conn.execute(
                 "UPDATE practice_imports SET result_json=?, payload_json='[]' WHERE token=?",
                 (json.dumps(result), token),

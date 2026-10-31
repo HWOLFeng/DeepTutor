@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import io
 import json
+from pathlib import Path
 import sqlite3
 
 from fastapi import FastAPI
@@ -175,7 +176,7 @@ def test_import_preview_commit_retries_dedup_tags_and_no_source_overwrite(bank):
     assert result["valid"] == 1 and result["token"]
     assert repo.overview("UTC")["total"] == 0  # preview does not alter the bank
     commit = client.post("/practice/import/commit", json={"token": result["token"]})
-    assert commit.json() == {"created": 1, "duplicates": 0, "total": 1}
+    assert commit.json() == {"created": 1, "duplicates": 0, "total": 1, "mistakes": 0}
     assert (
         client.post("/practice/import/commit", json={"token": result["token"]}).json()
         == commit.json()
@@ -444,6 +445,152 @@ def test_xlsx_embedded_figure_survives_import(bank, monkeypatch):
     assert entry["question_images"][0]["url"].startswith("/files/attachments/")
 
 
+def test_image_batch_imports_as_one_group(bank, monkeypatch):
+    store, _repo, client = bank
+    from deeptutor.services.practice import document_import
+
+    fake = _FakeAttachmentStore()
+    monkeypatch.setattr("deeptutor.services.storage.get_attachment_store", lambda: fake)
+
+    class _VisionClient:
+        config = type("_Config", (), {"model": "vision-model", "binding": "openai"})()
+
+        def supports_multimodal_images(self) -> bool:
+            return True
+
+    async def _fake_vision(image, *, mime_type="image/png", filename="page.png"):
+        return [
+            {
+                "question": f"{Path(filename).stem} 里的题目",
+                "question_type": "short_answer",
+                "options": {},
+                "correct_answer": "答案",
+                "explanation": "",
+                "tags": [],
+                "user_answer": "",
+                "figure_boxes": [],
+            }
+        ]
+
+    monkeypatch.setattr(document_import, "_llm_client", lambda: _VisionClient())
+    monkeypatch.setattr(document_import, "_active_model_vision", lambda: True)
+    monkeypatch.setattr(document_import, "_ask_vision_model", _fake_vision)
+
+    png = _figure_png()
+    response = client.post(
+        "/practice/import/preview",
+        files=[
+            ("files", ("page-a.png", png, "image/png")),
+            ("files", ("page-b.png", png, "image/png")),
+        ],
+        data={"target": "bank", "label": "错题本照片"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["valid"] == 2 and payload["token"]
+    assert (
+        client.post("/practice/import/commit", json={"token": payload["token"]}).json()["created"]
+        == 2
+    )
+
+    rows = asyncio.run(store.list_notebook_navigation())
+    assert len(rows) == 1
+    assert rows[0]["question"] == "错题本照片"
+    assert rows[0]["count"] == 2
+    assert rows[0]["material_id"].startswith("import:")
+    entries = asyncio.run(store.list_notebook_entries())["items"]
+    assert {entry["material_title"] for entry in entries} == {"错题本照片"}
+
+
+def test_large_uploaded_photos_are_compressed_before_the_model_and_storage(bank, monkeypatch):
+    store, _repo, client = bank
+    from deeptutor.services.practice import document_import
+
+    fake = _FakeAttachmentStore()
+    monkeypatch.setattr("deeptutor.services.storage.get_attachment_store", lambda: fake)
+    seen: list[int] = []
+
+    class _VisionClient:
+        config = type("_Config", (), {"model": "vision-model", "binding": "openai"})()
+
+        def supports_multimodal_images(self) -> bool:
+            return True
+
+    async def _fake_vision(image, *, mime_type="image/png", filename="page.png"):
+        seen.append(len(image))
+        return [
+            {
+                "question": "照片里的题目",
+                "question_type": "short_answer",
+                "options": {},
+                "correct_answer": "答案",
+                "explanation": "",
+                "tags": [],
+                "user_answer": "",
+                "figure_boxes": [],
+            }
+        ]
+
+    monkeypatch.setattr(document_import, "_llm_client", lambda: _VisionClient())
+    monkeypatch.setattr(document_import, "_active_model_vision", lambda: True)
+    monkeypatch.setattr(document_import, "_ask_vision_model", _fake_vision)
+
+    from PIL import Image as PILImage
+
+    photo = PILImage.effect_noise((2200, 1400), 64).convert("RGB")
+    buffer = io.BytesIO()
+    photo.save(buffer, format="JPEG", quality=95)
+    original = buffer.getvalue()
+
+    response = client.post(
+        "/practice/import/preview",
+        files={"file": ("photo.jpg", original, "image/jpeg")},
+        data={"target": "bank"},
+    )
+    assert response.status_code == 200, response.text
+    assert seen and seen[0] < len(original)
+    stored_name, stored_mime, stored = fake.uploads[0]
+    assert len(stored) < len(original)
+    assert stored_mime in {"image/webp", "image/jpeg"}
+    assert Path(stored_name).suffix in {".webp", ".jpg"}
+
+
+def test_multiple_uploads_that_are_not_all_images_are_rejected(bank):
+    _store, _repo, client = bank
+    response = client.post(
+        "/practice/import/preview",
+        files=[
+            ("files", ("page-a.png", _figure_png(), "image/png")),
+            ("files", ("paper.pdf", b"%PDF-1.4", "application/pdf")),
+        ],
+        data={"target": "bank"},
+    )
+    assert response.status_code == 422
+    assert "must be images" in response.json()["detail"]
+
+
+def test_image_import_without_a_vision_model_is_rejected(bank, monkeypatch):
+    _store, _repo, client = bank
+    from deeptutor.services.practice import document_import
+
+    class _TextClient:
+        config = type("_Config", (), {"model": "deepseek-chat", "binding": "deepseek"})()
+
+        def supports_multimodal_images(self) -> bool:
+            return False
+
+    monkeypatch.setattr(document_import, "_llm_client", lambda: _TextClient())
+    monkeypatch.setattr(document_import, "_active_model_vision", lambda: None)
+
+    response = client.post(
+        "/practice/import/preview",
+        files=[("files", ("page-a.png", _figure_png(), "image/png"))],
+        data={"target": "bank"},
+    )
+    assert response.status_code == 422
+    assert "deepseek-chat" in response.json()["detail"]
+
+
 def test_pdf_and_docx_import_keep_inline_figures(tmp_path):
     pymupdf = pytest.importorskip("pymupdf")
     docx = pytest.importorskip("docx")
@@ -504,6 +651,112 @@ def test_pdf_and_docx_import_keep_inline_figures(tmp_path):
         assert parsed["questions"][1]["correct_answer"] == "B"
 
 
+def _image_only_pdf() -> bytes:
+    pymupdf = pytest.importorskip("pymupdf")
+    document = pymupdf.open()
+    page = document.new_page()
+    # A whole-page image is exactly how a scan arrives: the header/footer
+    # filter drops it, so image flags alone cannot identify a scanned PDF.
+    page.insert_image(page.rect, stream=_figure_png())
+    data = document.tobytes()
+    document.close()
+    return data
+
+
+def test_image_only_pdf_reaches_the_vision_path(monkeypatch):
+    from deeptutor.services.practice import document_import
+
+    class _VisionClient:
+        config = type("_Config", (), {"model": "vision-model", "binding": "openai"})()
+
+        def supports_multimodal_images(self) -> bool:
+            return True
+
+    pages: list[bytes] = []
+
+    async def _fake_vision(
+        page_png: bytes, *, mime_type: str = "image/png", filename: str = "page.png"
+    ) -> list[dict]:
+        pages.append(page_png)
+        return [
+            {
+                "question": "如图，求阴影面积。",
+                "question_type": "single_choice",
+                "options": {"A": "10", "B": "20", "C": "30", "D": "40"},
+                "correct_answer": "B",
+                "explanation": "",
+                "tags": [],
+                "user_answer": "",
+                "figure_boxes": [],
+            }
+        ]
+
+    monkeypatch.setattr(document_import, "_llm_client", lambda: _VisionClient())
+    monkeypatch.setattr(document_import, "_active_model_vision", lambda: None)
+    monkeypatch.setattr(document_import, "_ask_vision_model", _fake_vision)
+
+    parsed = asyncio.run(document_import.preview_document(_image_only_pdf(), "scan.pdf"))
+    assert len(pages) == 1
+    assert parsed["questions"][0]["correct_answer"] == "B"
+
+
+def test_image_only_pdf_without_vision_names_the_active_model(monkeypatch):
+    from deeptutor.services.practice import document_import
+
+    class _TextClient:
+        config = type("_Config", (), {"model": "deepseek-chat", "binding": "deepseek"})()
+
+        def supports_multimodal_images(self) -> bool:
+            return False
+
+    monkeypatch.setattr(document_import, "_llm_client", lambda: _TextClient())
+    monkeypatch.setattr(document_import, "_active_model_vision", lambda: None)
+
+    with pytest.raises(document_import.DocumentImportError) as raised:
+        asyncio.run(document_import.preview_document(_image_only_pdf(), "scan.pdf"))
+    message = str(raised.value)
+    assert "deepseek-chat" in message and "vision-capable" in message
+
+
+def test_declared_vision_overrides_the_capability_table(monkeypatch):
+    from deeptutor.services.practice import document_import
+
+    class _TextClient:
+        config = type("_Config", (), {"model": "custom-vl", "binding": "deepseek"})()
+
+        def supports_multimodal_images(self) -> bool:
+            return False
+
+    monkeypatch.setattr(document_import, "_active_model_vision", lambda: True)
+    assert document_import._client_supports_vision(_TextClient()) is True
+
+
+def test_sparse_text_pdf_with_a_large_figure_stays_on_the_text_path(monkeypatch):
+    from deeptutor.services.practice import document_import
+
+    pymupdf = pytest.importorskip("pymupdf")
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_image(
+        pymupdf.Rect(20, 20, page.rect.width - 20, page.rect.height - 20),
+        stream=_figure_png(),
+    )
+    for index, line in enumerate(["1. 计算 2+2=？", "A. 3", "B. 4", "C. 5", "D. 6", "答案：B"]):
+        page.insert_text((72, 300 + index * 20), line, fontname="china-s", fontsize=12)
+    data = document.tobytes()
+    document.close()
+
+    # The text is sparse enough for the scan heuristic, but it does parse, so
+    # the importer must not send a text-based PDF to a vision model.
+    async def _unexpected(_page_png: bytes) -> list[dict]:
+        raise AssertionError("vision path used for a text PDF")
+
+    monkeypatch.setattr(document_import, "_ask_vision_model", _unexpected)
+    parsed = asyncio.run(document_import.preview_document(data, "sparse.pdf"))
+    assert len(parsed["questions"]) == 1
+    assert parsed["questions"][0]["correct_answer"] == "B"
+
+
 def test_figure_verification_can_rasterize_a_redrawn_svg():
     from deeptutor.services.practice.document_import import _box_contains, _svg_to_png
 
@@ -549,6 +802,165 @@ def test_navigation_aggregates_practice_questions_by_import_file(bank):
     rows = asyncio.run(store.list_notebook_navigation())
     by_title = {row["question"]: row for row in rows}
     assert by_title["one.pdf"]["count"] == 3
+    assert by_title["one.pdf"]["material_id"].startswith("import:")
     assert by_title["two.pdf"]["count"] == 1
     assert by_title[""]["count"] == 1  # non-import practice collapses to one row
+    assert by_title[""]["material_id"] == ""  # only imports name a file to filter by
     assert len(rows) == 3
+
+
+def _vision_rows(rows):
+    """Stand-in for the model reply, so the pipeline runs without a network."""
+
+    async def reply(image, *, mime_type="image/png", filename="page.png"):
+        return rows
+
+    return reply
+
+
+def _vision_client():
+    class _Client:
+        config = type("_Config", (), {"model": "vision-model", "binding": "openai"})()
+
+        def supports_multimodal_images(self) -> bool:
+            return True
+
+    return _Client()
+
+
+def _patch_vision(monkeypatch, rows, verdicts=None):
+    from deeptutor.services.practice import document_import
+
+    async def no_verdicts(*args, **kwargs):
+        return list(verdicts or [])
+
+    monkeypatch.setattr(document_import, "_llm_client", _vision_client)
+    monkeypatch.setattr(document_import, "_active_model_vision", lambda: True)
+    monkeypatch.setattr(document_import, "_ask_vision_model", _vision_rows(rows))
+    monkeypatch.setattr(document_import, "_check_answers", no_verdicts)
+    monkeypatch.setattr("deeptutor.services.storage.get_attachment_store", _FakeAttachmentStore)
+
+
+def test_commit_imports_only_the_selected_questions(bank):
+    _store, _repo, client = bank
+    data = "题目,题型,A,B,答案\n一?,单选题,1,2,A\n二?,单选题,1,2,B\n".encode()
+    preview = client.post(
+        "/practice/import/preview", files={"file": ("two.csv", data)}, data={"target": "bank"}
+    ).json()
+    assert preview["valid"] == 2 and len(preview["questions"]) == 2
+    commit = client.post(
+        "/practice/import/commit", json={"token": preview["token"], "selected": [1]}
+    )
+    assert commit.json() == {"created": 1, "duplicates": 0, "total": 1, "mistakes": 0}
+    items = client.get("/bank/entries").json()["items"]
+    assert [item["question"] for item in items] == ["二?"]
+
+
+def test_an_empty_or_out_of_range_selection_is_rejected(bank):
+    _store, _repo, client = bank
+    data = "题目,题型,A,B,答案\n一?,单选题,1,2,A\n".encode()
+    preview = client.post(
+        "/practice/import/preview", files={"file": ("one.csv", data)}, data={"target": "bank"}
+    ).json()
+    token = preview["token"]
+    empty = client.post("/practice/import/commit", json={"token": token, "selected": []})
+    assert empty.status_code == 422 and "at least one" in empty.json()["detail"]
+    outside = client.post("/practice/import/commit", json={"token": token, "selected": [3]})
+    assert outside.status_code == 422
+    # Neither rejection consumed the preview: the real selection still lands.
+    assert client.post(
+        "/practice/import/commit", json={"token": token, "selected": [0]}
+    ).json()["created"] == 1
+
+
+def test_a_question_the_learner_answered_right_is_not_a_mistake(bank, monkeypatch):
+    """The folder is a preference; a demonstrated correct answer is evidence."""
+    _patch_vision(
+        monkeypatch,
+        [
+            {
+                "question": "2+2=?",
+                "question_type": "single_choice",
+                "options": {"A": "3", "B": "4"},
+                "correct_answer": "B",
+                "user_answer": "B",
+                "explanation": "2+2=4",
+                "tags": [],
+                "figure_boxes": [],
+                "answer_source": "printed",
+            }
+        ],
+    )
+    _store, _repo, client = bank
+    preview = client.post(
+        "/practice/import/preview",
+        files=[("files", ("page.png", _figure_png(), "image/png"))],
+        data={"target": "mistakes"},
+    ).json()
+    assert preview["questions"][0]["attempt"] == "correct"
+    commit = client.post("/practice/import/commit", json={"token": preview["token"]}).json()
+    assert commit["mistakes"] == 0
+    entry = client.get("/bank/entries").json()["items"][0]
+    assert entry["result"] == "correct" and entry["is_correct"] is True
+    assert client.get("/bank/stats").json()["wrong"] == 0
+    assert client.get("/bank/entries?mistakes_only=true").json()["total"] == 0
+
+
+def test_a_filled_blank_is_restored_before_it_reaches_the_bank(bank, monkeypatch):
+    _patch_vision(
+        monkeypatch,
+        [
+            {
+                "question": "秋天是 liáng shuǎng（凉爽）的。",
+                "question_type": "short_answer",
+                "options": {},
+                "correct_answer": "凉爽",
+                "user_answer": "凉爽",
+                "explanation": "写出词语。",
+                "tags": [],
+                "figure_boxes": [],
+            }
+        ],
+    )
+    _store, _repo, client = bank
+    preview = client.post(
+        "/practice/import/preview",
+        files=[("files", ("page.png", _figure_png(), "image/png"))],
+        data={"target": "mistakes"},
+    ).json()
+    row = preview["questions"][0]
+    assert row["leaks"] == ["凉爽"]
+    assert "凉爽" not in row["question"] and "（　　）" in row["question"]
+    client.post("/practice/import/commit", json={"token": preview["token"]})
+    entry = client.get("/bank/entries").json()["items"][0]
+    assert "凉爽" not in entry["question"]
+
+
+def test_a_disagreeing_second_pass_is_flagged_not_silently_replaced(bank, monkeypatch):
+    _patch_vision(
+        monkeypatch,
+        [
+            {
+                "question": "数字1的对立面是（ ）",
+                "question_type": "short_answer",
+                "options": {},
+                "correct_answer": "3",
+                "user_answer": "",
+                "explanation": "",
+                "tags": [],
+                "figure_boxes": [[0.1, 0.1, 0.4, 0.4]],
+                "answer_source": "solved",
+            }
+        ],
+        verdicts=[{"index": 0, "answer": "6", "agrees": False, "reason": "different net"}],
+    )
+    _store, _repo, client = bank
+    preview = client.post(
+        "/practice/import/preview",
+        files=[("files", ("page.png", _figure_png(), "image/png"))],
+        data={"target": "mistakes"},
+    ).json()
+    row = preview["questions"][0]
+    assert row["answer_conflict"] is True
+    assert row["verdict_answer"] == "6"
+    assert row["correct_answer"] == "3"  # two guesses are not evidence
