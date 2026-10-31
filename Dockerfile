@@ -128,6 +128,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Apache-2.0 and third-party notices travel with the distributed image.
+COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md ./
+
 # Install system dependencies
 # Note: libgl1 and libglib2.0-0 are required for OpenCV (used by mineru)
 # Note: git is required to install CLI apps — most of the CLI-Anything catalog

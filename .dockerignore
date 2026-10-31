@@ -150,5 +150,10 @@ temp/
 # ============================================
 # License and Communication
 # ============================================
+# Keep the license/notice files in the build context so the production image
+# can ship them. They are re-included after the broad `*.md` exclusion above.
 LICENSE
+!LICENSE
+!NOTICE
+!THIRD_PARTY_NOTICES.md
 Communication.md

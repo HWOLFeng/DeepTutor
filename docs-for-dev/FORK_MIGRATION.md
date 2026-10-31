@@ -42,6 +42,7 @@
 | `tests/services/skill/test_practice_template_skill.py` | 技能测试 |
 | `tests/book/test_context.py`、`tests/agents/video_lesson/test_runtime.py` | 两项修复的回归测试 |
 | `NOTICE` | 非官方 Fork 声明与修改说明 |
+| `Dockerfile`、`.dockerignore` | 生产镜像携带 `LICENSE`/`NOTICE`/第三方声明 |
 | `.gitignore` | 忽略部署产物、团队部署目录 |
 
 ### 1.2 不要提交（运行时数据 / 本机产物）
