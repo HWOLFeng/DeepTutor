@@ -82,6 +82,24 @@ def normalize_book_references(value: Any) -> list[NormalizedBookReference]:
     return refs
 
 
+def _shared_book_storage(book_id: str) -> BookStorage | None:
+    """Storage for a book the caller may read from the admin-shared catalogue.
+
+    Personal storage is tried first by the caller. In a multi-user deployment
+    every book is created in the admin workspace and members read it through
+    their ``book_permission`` grant, so the admin catalogue is the second hop.
+    Permission is enforced by :func:`resolve_book`; an unknown or denied id
+    yields ``None`` and stays a ``book_not_found`` warning.
+    """
+    try:
+        from deeptutor.multi_user.book_access import resolve_book
+
+        resolved = resolve_book(book_id)
+    except Exception:
+        return None
+    return resolved.engine.storage if resolved is not None else None
+
+
 def build_book_context(
     book_references: Any,
     *,
@@ -101,15 +119,21 @@ def build_book_context(
     sections: list[str] = []
 
     for ref in refs:
+        book_store = store
         book = store.load_book(ref.book_id)
+        if book is None and storage is None:
+            shared = _shared_book_storage(ref.book_id)
+            if shared is not None:
+                book_store = shared
+                book = shared.load_book(ref.book_id)
         if book is None:
             warnings.append(f"book_not_found:{ref.book_id}")
             continue
 
-        spine = store.load_spine(ref.book_id)
+        spine = book_store.load_spine(ref.book_id)
         page_sections: list[str] = []
         for page_id in ref.page_ids:
-            page = store.load_page(ref.book_id, page_id)
+            page = book_store.load_page(ref.book_id, page_id)
             if page is None:
                 warnings.append(f"page_not_found:{ref.book_id}:{page_id}")
                 continue

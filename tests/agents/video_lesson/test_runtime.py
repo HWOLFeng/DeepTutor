@@ -29,6 +29,35 @@ def test_prepare_workdir_copies_the_kit(tmp_path: Path) -> None:
         assert (tmp_path / "source" / name).is_file()
 
 
+def test_install_keeps_npm_cache_out_of_home(monkeypatch, tmp_path: Path) -> None:
+    """npm must not cache under $HOME: containers run as UID 1000 with HOME=/root."""
+    import asyncio
+
+    from deeptutor.agents.video_lesson import runtime
+    from deeptutor.services.sandbox.spec import ExecResult
+
+    calls: list[dict] = []
+
+    async def fake_run(argv, *, timeout, cwd=None, env=None):
+        calls.append({"argv": argv, "cwd": cwd, "env": env})
+        return ExecResult()
+
+    installed = iter([False, True])
+    monkeypatch.setattr(runtime, "_node", lambda: "/usr/bin/node")
+    monkeypatch.setattr(runtime, "_installed", lambda root: next(installed))
+    monkeypatch.setattr(runtime, "runtime_dir", lambda: tmp_path / "runtime")
+    monkeypatch.setattr(
+        runtime.shutil, "which", lambda name: f"/usr/bin/{name}" if name == "npm" else None
+    )
+    monkeypatch.setattr(runtime, "_run_tool", fake_run)
+
+    asyncio.run(runtime.ensure_runtime())
+
+    cache = tmp_path / "npm-cache"
+    assert calls[0]["env"] == {"npm_config_cache": str(cache)}
+    assert cache.is_dir()
+
+
 def test_write_page_inlines_the_bundle_safely(tmp_path: Path) -> None:
     bundle = tmp_path / "player.js"
     bundle.write_text('console.log("</script><b>x</b>");', encoding="utf-8")

@@ -157,3 +157,34 @@ def test_build_book_context_reports_missing_refs() -> None:
 
     assert result.text == ""
     assert result.warnings == ["book_not_found:missing"]
+
+
+def test_build_book_context_reads_a_book_shared_from_the_admin_catalogue(monkeypatch) -> None:
+    """Members read admin-owned books through their permission grant.
+
+    The caller's own storage has no such book; the admin catalogue does. Before
+    the fallback, ``book_not_found`` silently dropped the selected book and the
+    model answered from parametric memory instead.
+    """
+    from types import SimpleNamespace
+
+    from deeptutor.book import context as book_context
+
+    class EmptyStorage:
+        def load_book(self, book_id: str):
+            return None
+
+    shared = FakeBookStorage()
+    monkeypatch.setattr(book_context, "get_book_storage", lambda: EmptyStorage())
+    monkeypatch.setattr(
+        "deeptutor.multi_user.book_access.resolve_book",
+        lambda book_id: (
+            SimpleNamespace(engine=SimpleNamespace(storage=shared)) if book_id == "book-1" else None
+        ),
+    )
+
+    result = book_context.build_book_context([{"book_id": "book-1", "page_ids": ["page-1"]}])
+
+    assert result.warnings == []
+    assert "# Book: Fourier Notes" in result.text
+    assert "A signal maps time to values." in result.text

@@ -108,10 +108,18 @@ async def ensure_runtime() -> Path:
             root.mkdir(parents=True, exist_ok=True)
             for name in ("package.json", "package-lock.json"):
                 shutil.copy(ASSETS_DIR / name, root / name)
+            # npm caches under ``$HOME/.npm``. In containers the backend runs as
+            # an unprivileged user (UID 1000) while ``HOME`` still points at
+            # root's 0700 home, so the cache is unreadable and ``npm ci`` fails
+            # with EACCES. Keep the cache next to the runtime we own instead of
+            # trusting the deployment's HOME.
+            cache = root.parent / "npm-cache"
+            cache.mkdir(parents=True, exist_ok=True)
             result = await _run_tool(
                 [npm, "ci", "--no-audit", "--no-fund", "--omit=dev"],
                 timeout=INSTALL_TIMEOUT_S,
                 cwd=root,
+                env={"npm_config_cache": str(cache)},
             )
             _require_success(result, "Installing Remotion")
             if not _installed(root):
