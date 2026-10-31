@@ -15149,6 +15149,11 @@ export interface components {
        * @default []
        */
       readonly user_answer_images: readonly components["schemas"]["AnswerImageItem"][];
+      /**
+       * Question Images
+       * @default []
+       */
+      readonly question_images: readonly components["schemas"]["AnswerImageItem"][];
     };
     /** NotebookEntryListResponse */
     readonly NotebookEntryListResponse: {

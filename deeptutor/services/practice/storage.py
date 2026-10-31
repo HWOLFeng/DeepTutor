@@ -348,9 +348,10 @@ class PracticeStore:
                     """
                     INSERT OR IGNORE INTO notebook_entries(
                         session_id, origin_type, origin_ref, question_id, question, question_type,
-                        options_json, correct_answer, explanation, difficulty, user_answer, source,
+                        options_json, correct_answer, explanation, difficulty, user_answer,
+                        question_images_json, source,
                         result, assessment_type, created_at, updated_at, material_title, material_id)
-                    VALUES(NULL, 'external_import', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, 'quiz', ?, ?, ?, ?)
+                    VALUES(NULL, 'external_import', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, 'quiz', ?, ?, ?, ?)
                 """,
                     (
                         origin_ref,
@@ -362,6 +363,7 @@ class PracticeStore:
                         question["explanation"],
                         question["difficulty"],
                         question["user_answer"],
+                        json.dumps(question.get("question_images") or [], ensure_ascii=False),
                         "incorrect" if staged["target"] == "mistakes" else "ungraded",
                         now,
                         now,
@@ -377,6 +379,17 @@ class PracticeStore:
                       AND question_id=? AND turn_id=''""",
                     (origin_ref, question["question_id"]),
                 ).fetchone()[0]
+                # A duplicate import can carry fresh figure URLs (for example
+                # after an attachment cleanup). Refresh them without touching
+                # the learner's answers or review history.
+                if question.get("question_images"):
+                    conn.execute(
+                        "UPDATE notebook_entries SET question_images_json=? WHERE id=?",
+                        (
+                            json.dumps(question["question_images"], ensure_ascii=False),
+                            entry_id,
+                        ),
+                    )
                 if staged["target"] == "mistakes":
                     conn.execute(
                         "INSERT OR IGNORE INTO practice_review_state(entry_id, first_wrong_at, due_at) VALUES(?, ?, ?)",

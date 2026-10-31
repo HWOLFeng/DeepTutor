@@ -383,3 +383,172 @@ def test_analytics_local_midnight_dst_zero_days_and_deleted_sources(bank):
     with repo.connect() as conn:
         conn.execute("UPDATE sessions SET deleted_at=? WHERE id='lesson'", (now,))
     assert repo.analytics("America/New_York", 7, now=now)["sources"] == []
+
+
+def _figure_png() -> bytes:
+    image = pytest.importorskip("PIL.Image")
+    draw = pytest.importorskip("PIL.ImageDraw")
+    canvas = image.new("RGB", (320, 160), "white")
+    pen = draw.Draw(canvas)
+    pen.rectangle([10, 10, 310, 150], outline="black", width=3)
+    pen.line([(10, 80), (310, 80)], fill="black", width=2)
+    output = io.BytesIO()
+    canvas.save(output, "PNG")
+    return output.getvalue()
+
+
+class _FakeAttachmentStore:
+    def __init__(self) -> None:
+        self.uploads: list[tuple[str, str, bytes]] = []
+
+    async def put(
+        self,
+        *,
+        session_id: str,
+        attachment_id: str,
+        filename: str,
+        data: bytes,
+        mime_type: str = "",
+    ) -> str:
+        self.uploads.append((filename, mime_type, data))
+        return f"/files/attachments/{session_id}/{attachment_id}/{filename}"
+
+
+def test_xlsx_embedded_figure_survives_import(bank, monkeypatch):
+    store, repo, client = bank
+    from openpyxl.drawing.image import Image as XLImage
+
+    fake = _FakeAttachmentStore()
+    monkeypatch.setattr("deeptutor.services.storage.get_attachment_store", lambda: fake)
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["question", "question_type", "A", "B", "C", "D", "correct_answer", "explanation", "tags", "user_answer"])
+    sheet.append(["如图，重叠后的总长是多少？", "single_choice", "140", "130", "120", "110", "B", "", "数学", ""])
+    sheet.add_image(XLImage(io.BytesIO(_figure_png())), "A2")
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+
+    result = client.post(
+        "/practice/import/preview",
+        files={"file": ("figures.xlsx", output.getvalue())},
+        data={"target": "mistakes"},
+    ).json()
+    assert result["valid"] == 1 and result["token"]
+    assert result["samples"][0]["question_images"][0]["url"].startswith("/files/attachments/")
+    assert fake.uploads and fake.uploads[0][0] == "image-01.png"
+
+    assert client.post("/practice/import/commit", json={"token": result["token"]}).json()["created"] == 1
+    entry = asyncio.run(store.list_notebook_entries())["items"][0]
+    assert entry["question_images"][0]["filename"] == "image-01.png"
+    assert entry["question_images"][0]["url"].startswith("/files/attachments/")
+
+
+def test_pdf_and_docx_import_keep_inline_figures(tmp_path):
+    pymupdf = pytest.importorskip("pymupdf")
+    docx = pytest.importorskip("docx")
+    from docx.shared import Inches
+
+    from deeptutor.services.practice.document_import import preview_document
+
+    png = _figure_png()
+
+    pdf = pymupdf.open()
+    page = pdf.new_page()
+    y = 72
+    for line in [
+        "1. 计算 2+2=？",
+        "A. 3",
+        "B. 4",
+        "C. 5",
+        "D. 6",
+        "答案：B",
+        "解析：2+2=4。",
+    ]:
+        page.insert_text((72, y), line, fontname="china-s", fontsize=12)
+        y += 20
+    y += 10
+    for line in [
+        "2. 两根木条重叠后如图，总长是多少？",
+        "A. 140",
+        "B. 130",
+        "C. 120",
+        "D. 110",
+        "答案：B",
+        "解析：60+80-10=130。",
+    ]:
+        page.insert_text((72, y), line, fontname="china-s", fontsize=12)
+        y += 20
+    page.insert_image(pymupdf.Rect(400, 250, 560, 330), stream=png)
+    pdf_bytes = pdf.tobytes()
+    pdf.close()
+
+    document = docx.Document()
+    document.add_paragraph("1. 计算 2+2=？")
+    for line in ["A. 3", "B. 4", "C. 5", "D. 6", "答案：B", "解析：2+2=4。"]:
+        document.add_paragraph(line)
+    document.add_paragraph("2. 如图，重叠后的总长是多少？")
+    document.add_picture(io.BytesIO(png), width=Inches(2.2))
+    for line in ["A. 140", "B. 130", "C. 120", "D. 110", "答案：B", "解析：60+80-10=130。"]:
+        document.add_paragraph(line)
+    docx_path = tmp_path / "figure.docx"
+    document.save(docx_path)
+
+    pdf_rows = asyncio.run(preview_document(pdf_bytes, "figure.pdf"))
+    docx_rows = asyncio.run(preview_document(docx_path.read_bytes(), "figure.docx"))
+    for parsed in (pdf_rows, docx_rows):
+        assert not parsed["errors"]
+        assert len(parsed["questions"]) == 2
+        assert len(parsed["questions"][0]["question_images"]) == 0
+        assert len(parsed["questions"][1]["question_images"]) == 1
+        assert parsed["questions"][1]["correct_answer"] == "B"
+
+
+def test_figure_verification_can_rasterize_a_redrawn_svg():
+    from deeptutor.services.practice.document_import import _box_contains, _svg_to_png
+
+    pytest.importorskip("pymupdf")
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">'
+        '<rect x="10" y="10" width="180" height="80" fill="none" stroke="black"/>'
+        '<text x="30" y="60" font-size="16">10cm</text></svg>'
+    )
+    png = _svg_to_png(svg)
+    assert png is not None and png.startswith(b"\x89PNG")
+    assert _svg_to_png("<script>alert(1)</script>") is None
+    assert _box_contains((0.1, 0.1, 0.9, 0.9), (0.2, 0.2, 0.8, 0.8))
+    assert not _box_contains((0.2, 0.2, 0.8, 0.8), (0.1, 0.1, 0.9, 0.9))
+
+
+def test_duplicate_import_refreshes_question_images(bank):
+    store, repo, _ = bank
+    question = normalize_question(
+        {"question": "如图，求长度", "A": "8", "B": "6", "answer": "B", "tags": "数学"}
+    )
+    old = {"id": "old", "url": "/files/old.png", "filename": "old.png", "mime_type": "image/png"}
+    new = {"id": "new", "url": "/files/new.png", "filename": "new.png", "mime_type": "image/png"}
+    first = dict(question, question_images=[old])
+    second = dict(question, question_images=[new])
+    assert repo.commit_import(repo.stage_import("q.json", "bank", [first]))["created"] == 1
+    again = repo.commit_import(repo.stage_import("q.json", "bank", [second]))
+    assert again["duplicates"] == 1
+    entry = asyncio.run(store.list_notebook_entries())["items"][0]
+    assert entry["question_images"] == [new]
+
+
+def test_navigation_aggregates_practice_questions_by_import_file(bank):
+    store, repo, _ = bank
+    first = [
+        normalize_question({"question": f"file one q{i}", "answer": "A"}) for i in range(3)
+    ]
+    second = [normalize_question({"question": "file two q", "answer": "B"})]
+    repo.commit_import(repo.stage_import("one.pdf", "bank", first))
+    repo.commit_import(repo.stage_import("two.pdf", "bank", second))
+    seed(store, question_id="loose", question="loose question")
+
+    rows = asyncio.run(store.list_notebook_navigation())
+    by_title = {row["question"]: row for row in rows}
+    assert by_title["one.pdf"]["count"] == 3
+    assert by_title["two.pdf"]["count"] == 1
+    assert by_title[""]["count"] == 1  # non-import practice collapses to one row
+    assert len(rows) == 3

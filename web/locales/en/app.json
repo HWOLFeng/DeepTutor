@@ -4624,6 +4624,7 @@
   "Page {{page}} of {{pages}}": "Page {{page}} of {{pages}}",
   "Import questions": "Import questions",
   "Close import": "Close import",
+  "Import XLSX, CSV, TSV, JSON, PDF or DOCX. Up to 500 questions and 5 MB per file. XLSX uses the active sheet and keeps row-anchored pictures; PDF/DOCX keep their figures. Chinese and English column names are supported.": "Import XLSX, CSV, TSV, JSON, PDF or DOCX. Up to 500 questions and 5 MB per file. XLSX uses the active sheet and keeps row-anchored pictures; PDF/DOCX keep their figures. Chinese and English column names are supported.",
   "Import XLSX, CSV, TSV or JSON. Up to 500 questions and 5 MB per file. XLSX uses the active sheet. Chinese and English column names are supported.": "Import XLSX, CSV, TSV or JSON. Up to 500 questions and 5 MB per file. XLSX uses the active sheet. Chinese and English column names are supported.",
   "Import into": "Import into",
   "Download {{format}} template": "Download {{format}} template",

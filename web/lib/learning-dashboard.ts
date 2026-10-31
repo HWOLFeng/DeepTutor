@@ -18,7 +18,7 @@ export interface LearningSources {
   books: Located<Book>[]
   mastery: Located<MasteryTopic>[]
   reading: Located<ReadingWorkspace>[]
-  practice?: Located<{ id: number; question: string; created_at: number; updated_at: number }>[]
+  practice?: Located<{ id: number; question: string; count?: number; created_at: number; updated_at: number }>[]
   watching: SessionSummary[]
 }
 export interface LearningActivity {
@@ -29,6 +29,7 @@ export interface LearningActivity {
   updatedAt: number
   createdAt: number
   progress?: number
+  count?: number
 }
 export function isWatchingSession(session: SessionSummary): boolean {
   return (
@@ -39,17 +40,25 @@ export function isWatchingSession(session: SessionSummary): boolean {
 /** Every activity across the surfaces, newest first. Archived paths are not work in progress. */
 export function allLearningActivity(sources: LearningSources): LearningActivity[] {
   return [
-    ...(sources.practice ?? []).map(entry => ({
-      key: `practice:${entry.content_workspace_id || ''}:${entry.id}`,
-      kind: 'practice' as const,
-      title: entry.question,
-      href: scopedUrl(
-        practiceRoute(new URLSearchParams({ question: String(entry.id) }), ''),
-        entry.content_workspace_id || ''
-      ),
-      updatedAt: entry.updated_at || entry.created_at,
-      createdAt: entry.created_at || entry.updated_at,
-    })),
+    ...(sources.practice ?? []).map(entry => {
+      const count = Math.max(1, Number(entry.count) || 1)
+      return {
+        key: `practice:${entry.content_workspace_id || ''}:${entry.id}`,
+        kind: 'practice' as const,
+        title: entry.question,
+        // One imported file is one navigation row; a single question still
+        // opens that exact question, a group opens the practice hub.
+        href: scopedUrl(
+          count > 1
+            ? practiceRoute(new URLSearchParams(), '')
+            : practiceRoute(new URLSearchParams({ question: String(entry.id) }), ''),
+          entry.content_workspace_id || ''
+        ),
+        updatedAt: entry.updated_at || entry.created_at,
+        createdAt: entry.created_at || entry.updated_at,
+        count: count > 1 ? count : undefined,
+      }
+    }),
     ...sources.books.map(book => ({
       key: `book:${book.content_workspace_id || ''}:${book.id}`,
       kind: 'books' as const,
@@ -148,7 +157,8 @@ export function learningSurfaceStats(
   // Sorted newest first, so the first activity seen for a kind is its latest.
   for (const activity of allLearningActivity(sources)) {
     const stat = stats[activity.kind]
-    stat.count += 1
+    // A grouped practice row still represents that many questions.
+    stat.count += activity.count ?? 1
     stat.latest ??= activity
   }
   return stats

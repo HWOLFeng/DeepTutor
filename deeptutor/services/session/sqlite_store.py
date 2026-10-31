@@ -387,6 +387,7 @@ class SQLiteSessionStore:
                     difficulty TEXT DEFAULT '',
                     user_answer TEXT DEFAULT '',
                     user_answer_images_json TEXT DEFAULT '[]',
+                    question_images_json TEXT DEFAULT '[]',
                     source TEXT NOT NULL DEFAULT 'deep_question',
                     material_id TEXT NOT NULL DEFAULT '',
                     material_title TEXT NOT NULL DEFAULT '',
@@ -525,6 +526,7 @@ class SQLiteSessionStore:
             )
             self._migrate_notebook_entries_add_turn_id(conn)
             self._migrate_notebook_entries_add_user_answer_images(conn)
+            self._migrate_notebook_entries_add_question_images(conn)
             self._migrate_notebook_entries_add_ai_judgment(conn)
             self._migrate_notebook_entries_add_assessment_review(conn)
             self._migrate_notebook_entries_add_assessment_v2(conn)
@@ -764,6 +766,25 @@ class SQLiteSessionStore:
             )
 
     @staticmethod
+    def _migrate_notebook_entries_add_question_images(
+        conn: sqlite3.Connection,
+    ) -> None:
+        """Back-fill ``question_images_json`` on legacy DBs.
+
+        The column stores a JSON array of ``{id, url, filename, mime_type}``
+        records for figures that belong to the *question* (for example a
+        diagram referenced by "如图"). The bytes live in the AttachmentStore;
+        only references are kept on the row.
+        """
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(notebook_entries)").fetchall()}
+        if not cols:
+            return
+        if "question_images_json" not in cols:
+            conn.execute(
+                "ALTER TABLE notebook_entries ADD COLUMN question_images_json TEXT DEFAULT '[]'"
+            )
+
+    @staticmethod
     def _migrate_notebook_entries_add_ai_judgment(
         conn: sqlite3.Connection,
     ) -> None:
@@ -930,6 +951,7 @@ class SQLiteSessionStore:
                     difficulty TEXT DEFAULT '',
                     user_answer TEXT DEFAULT '',
                     user_answer_images_json TEXT DEFAULT '[]',
+                    question_images_json TEXT DEFAULT '[]',
                     source TEXT NOT NULL DEFAULT 'deep_question',
                     material_id TEXT NOT NULL DEFAULT '',
                     material_title TEXT NOT NULL DEFAULT '',
@@ -962,6 +984,7 @@ class SQLiteSessionStore:
                     id, session_id, origin_type, origin_ref, turn_id, question_id,
                     question, question_type, options_json, correct_answer,
                     explanation, difficulty, user_answer, user_answer_images_json,
+                    question_images_json,
                     source, material_id, material_title, section_id, section_title,
                     score_trend, assessment_type, result, mastery_path_id,
                     knowledge_point_id, attempt_count, hints_used, confidence,
@@ -972,7 +995,7 @@ class SQLiteSessionStore:
                     id, NULLIF(session_id, ''), {origin_type}, {origin_ref},
                     COALESCE(turn_id, ''), question_id, question, question_type,
                     options_json, correct_answer, explanation, difficulty,
-                    user_answer, user_answer_images_json, source, material_id,
+                    user_answer, user_answer_images_json, question_images_json, source, material_id,
                     material_title, section_id, section_title, score_trend,
                     assessment_type, result, mastery_path_id, knowledge_point_id,
                     attempt_count, hints_used, confidence, response_time, quality,
@@ -3942,6 +3965,11 @@ class SQLiteSessionStore:
             raw_images = _json_loads(row["user_answer_images_json"], [])
             if isinstance(raw_images, list):
                 images = [r for r in raw_images if isinstance(r, dict)]
+        question_images: list[dict[str, Any]] = []
+        if "question_images_json" in keys:
+            raw_question_images = _json_loads(row["question_images_json"], [])
+            if isinstance(raw_question_images, list):
+                question_images = [r for r in raw_question_images if isinstance(r, dict)]
         is_correct = bool(row["is_correct"])
         stored_result = (row["result"] or "") if "result" in keys else ""
         if stored_result in ASSESSMENT_RESULTS:
@@ -3969,6 +3997,7 @@ class SQLiteSessionStore:
             "difficulty": row["difficulty"] or "",
             "user_answer": row["user_answer"] or "",
             "user_answer_images": images,
+            "question_images": question_images,
             "is_correct": is_correct,
             "source": (row["source"] or "deep_question") if "source" in keys else "deep_question",
             "material_id": (row["material_id"] or "") if "material_id" in keys else "",
@@ -4145,7 +4174,8 @@ class SQLiteSessionStore:
                 n.origin_type, n.origin_ref, n.turn_id, n.question_id,
                 n.question, n.question_type, n.options_json,
                 n.correct_answer, n.explanation, n.difficulty,
-                n.user_answer, n.user_answer_images_json, n.source, n.material_id,
+                n.user_answer, n.user_answer_images_json, n.question_images_json,
+                n.source, n.material_id,
                 n.material_title, n.section_id, n.section_title, n.score_trend,
                 n.assessment_type, n.result, n.mastery_path_id, n.knowledge_point_id,
                 n.attempt_count, n.hints_used, n.confidence, n.response_time, n.quality,
@@ -4178,21 +4208,33 @@ class SQLiteSessionStore:
         return {"items": items, "total": total}
 
     async def list_notebook_navigation(self) -> list[dict[str, Any]]:
-        """Read small question identities for navigation, without hydrating answers.
+        """Read small, grouped question identities for navigation.
 
-        Uses the same recycle predicate as the Question Bank. No new schema or
-        migration: old entry IDs remain the IDs used by practice and review.
+        Importing a 500-question workbook must not put 500 rows in the learning
+        sidebar. Imported questions are grouped by their source file
+        (``material_title``); questions created elsewhere collapse into one
+        practice row. ``id`` is the newest question in each group, so a group
+        with one question still opens it directly. Uses the same recycle
+        predicate as the Question Bank; no schema change is required.
         """
 
         def read() -> list[dict[str, Any]]:
+            group = (
+                "CASE WHEN origin_type='external_import' "
+                "THEN substr(COALESCE(material_title,''), 1, 160) ELSE '' END"
+            )
             with self._connect() as conn:
                 return [
                     dict(row)
                     for row in conn.execute(
-                        # Only a fixed table alias is substituted into the local predicate.
-                        "SELECT id, substr(question, 1, 160) AS question, created_at, updated_at "  # nosec B608
+                        "SELECT MAX(id) AS id, "
+                        + group
+                        + " AS question, COUNT(*) AS count, "
+                        "MIN(created_at) AS created_at, MAX(updated_at) AS updated_at "
                         "FROM notebook_entries WHERE "
                         + _NOT_RECYCLED_ENTRY_SQL.format(entries="notebook_entries")
+                        + " GROUP BY "
+                        + group
                         + " ORDER BY updated_at DESC, id DESC"
                     ).fetchall()
                 ]

@@ -7,6 +7,7 @@ import csv
 import io
 import time
 from typing import Literal
+import uuid
 import zipfile
 
 from defusedxml.ElementTree import ParseError
@@ -254,16 +255,24 @@ async def import_preview(
 ):
     try:
         data = await file.read(MAX_BYTES + 1)
-        parsed = await asyncio.to_thread(preview, data, file.filename or "")
+        filename = file.filename or ""
+        suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+        if suffix in {"pdf", "docx"}:
+            from deeptutor.services.practice.document_import import preview_document
+
+            parsed = await preview_document(data, filename)
+        else:
+            parsed = await asyncio.to_thread(preview, data, filename)
     except (ValueError, UnicodeError, OSError, zipfile.BadZipFile, KeyError, ParseError) as exc:
         raise HTTPException(422, str(exc)) from exc
     finally:
         await file.close()
     token = None
     if not parsed["errors"]:
+        await _persist_question_images(parsed["questions"])
         token = await asyncio.to_thread(
             PracticeStore(get_sqlite_session_store().db_path).stage_import,
-            file.filename or "",
+            filename,
             target,
             parsed["questions"],
         )
@@ -274,6 +283,46 @@ async def import_preview(
         "errors": parsed["errors"],
         "samples": parsed["questions"][:5],
     }
+
+
+async def _persist_question_images(questions: list[dict]) -> None:
+    """Move parser image bytes into the AttachmentStore and keep references.
+
+    Imported questions have no chat session, so a stable pseudo-session keeps
+    the public URL shape and cleanup semantics identical to chat attachments.
+    """
+    from deeptutor.services.storage import get_attachment_store
+
+    store = get_attachment_store()
+    for question in questions:
+        persisted = []
+        for image in question.get("question_images") or []:
+            data = image.get("data") or b""
+            if not data:
+                persisted.append(image)
+                continue
+            attachment_id = uuid.uuid4().hex[:12]
+            filename = str(image.get("filename") or "figure.png")
+            mime_type = str(image.get("mime_type") or "image/png")
+            try:
+                url = await store.put(
+                    session_id="practice-import",
+                    attachment_id=attachment_id,
+                    filename=filename,
+                    data=data,
+                    mime_type=mime_type,
+                )
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"Could not store an imported figure: {exc}") from exc
+            persisted.append(
+                {
+                    "id": attachment_id,
+                    "url": url,
+                    "filename": filename,
+                    "mime_type": mime_type,
+                }
+            )
+        question["question_images"] = persisted
 
 
 @router.post("/import/commit")

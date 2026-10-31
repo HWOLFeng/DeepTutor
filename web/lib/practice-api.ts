@@ -44,7 +44,13 @@ export interface ImportPreview {
   total: number
   valid: number
   errors: { row: number; message: string }[]
-  samples: { question: string; question_type: string; correct_answer: string; tags: string[] }[]
+  samples: {
+    question: string
+    question_type: string
+    correct_answer: string
+    tags: string[]
+    question_images?: { id: string; url: string; filename: string; mime_type: string }[]
+  }[]
 }
 export class PracticeRequestError extends Error {
   constructor(

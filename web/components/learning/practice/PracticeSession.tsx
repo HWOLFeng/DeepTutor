@@ -1,6 +1,7 @@
 'use client'
 
 import Markdown from '@/components/common/MarkdownRenderer'
+import { QuestionFigures } from '@/components/common/QuestionFigures'
 import { practiceMarkdown } from '@/lib/practice-content'
 import { randomUuid } from '@/lib/random-uuid'
 import { useEffect, useRef, useState } from 'react'
@@ -257,6 +258,7 @@ function PracticeTurn({
               className="[overflow-wrap:anywhere] [&_pre]:max-w-full [&_pre]:overflow-x-auto"
             />
           </div>
+          <QuestionFigures images={entry.question_images} className="mt-3" />
           {multi && (
             <p className="mt-3 text-xs text-muted-foreground">{t('Select all correct answers')}</p>
           )}

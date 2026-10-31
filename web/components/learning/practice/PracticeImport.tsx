@@ -9,6 +9,7 @@ import {
   previewPracticeImport,
   type ImportPreview,
 } from "@/lib/practice-api";
+import { QuestionFigures } from "@/components/common/QuestionFigures";
 
 export function PracticeImport({
   onClose,
@@ -79,7 +80,7 @@ export function PracticeImport({
       </div>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         {t(
-          "Import XLSX, CSV, TSV or JSON. Up to 500 questions and 5 MB per file. XLSX uses the active sheet. Chinese and English column names are supported.",
+          "Import XLSX, CSV, TSV, JSON, PDF or DOCX. Up to 500 questions and 5 MB per file. XLSX uses the active sheet and keeps row-anchored pictures; PDF/DOCX keep their figures. Chinese and English column names are supported.",
         )}
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -118,7 +119,7 @@ export function PracticeImport({
         <input
           key={target}
           type="file"
-          accept=".xlsx,.csv,.tsv,.json"
+          accept=".xlsx,.csv,.tsv,.json,.pdf,.docx"
           disabled={busy}
           onChange={event => {
             void select(event.target.files?.[0]);
@@ -171,6 +172,7 @@ export function PracticeImport({
             {preview.samples.map((question, index) => (
               <li key={index} className="py-3 text-sm">
                 <p className="line-clamp-2">{question.question}</p>
+                <QuestionFigures images={question.question_images} className="mt-2" maxHeight="max-h-28" />
                 <p className="mt-1 truncate text-xs text-muted-foreground">
                   {t("Correct answer")}: {question.correct_answer}
                   {question.tags.length ? ` · ${question.tags.join(" / ")}` : ""}

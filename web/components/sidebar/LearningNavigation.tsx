@@ -197,7 +197,17 @@ function RecordNode({
           }}
           className="dt-record-node-link"
         >
-          <span className="min-w-0 flex-1 truncate">{record.title}</span>
+          <span className="min-w-0 flex-1 truncate">
+            {record.title || t(learningSurface(record.kind).title)}
+          </span>
+          {record.count ? (
+            <span
+              className="dt-record-chat-count"
+              title={t('{{count}} quiz items', { count: record.count })}
+            >
+              {record.count}
+            </span>
+          ) : null}
           {expandable && !expanded && (
             <span className="dt-record-chat-count" title={t('navigation.recordChats', { count: sessions.length })}>
               <MessageCircle size={11} strokeWidth={1.8} aria-hidden />

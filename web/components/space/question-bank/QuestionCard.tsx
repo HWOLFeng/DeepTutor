@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
+import { QuestionFigures } from "@/components/common/QuestionFigures";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import {
@@ -313,6 +314,7 @@ export default function QuestionCard({
           className="text-[14px] leading-relaxed [overflow-wrap:anywhere] [&_pre]:max-w-full [&_pre]:overflow-x-auto"
           allowHtml={false}
         />
+        <QuestionFigures images={entry.question_images} className="mt-2" maxHeight="max-h-40" />
       </div>
 
       {/* Aligned with the question text: checkbox (0.875rem) + gap (0.75rem). */}

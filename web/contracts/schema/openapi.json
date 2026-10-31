@@ -8111,6 +8111,14 @@
             "title": "Question Id",
             "type": "string"
           },
+          "question_images": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/AnswerImageItem"
+            },
+            "title": "Question Images",
+            "type": "array"
+          },
           "question_type": {
             "default": "",
             "title": "Question Type",
