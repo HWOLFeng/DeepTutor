@@ -14,6 +14,17 @@
 #   2. Configure provider profiles from the web Settings page or model_catalog.json
 # ============================================
 
+# Package mirrors. The defaults target a build host in mainland China; pass
+# --build-arg APT_MIRROR=deb.debian.org ... to build from another region.
+# These only affect HOW the image is assembled — no proxy or mirror setting is
+# baked into the runtime environment.
+ARG APT_MIRROR=mirrors.aliyun.com
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+# rustup ships its toolchain from static.rust-lang.org, which is slow here.
+ARG RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
+ARG RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
+
 # ============================================
 # Stage 1: Frontend Builder
 # ============================================
@@ -22,13 +33,15 @@
 # so there is no need to cross-compile this stage.
 FROM --platform=$BUILDPLATFORM node:22-slim AS frontend-builder
 
+ARG NPM_REGISTRY
 WORKDIR /app/web
 
 # Copy package files first for better caching
 COPY web/package.json web/package-lock.json* ./
 
 # Install dependencies with generous timeout for CI environments
-RUN npm config set fetch-timeout 600000 && \
+RUN npm config set registry "$NPM_REGISTRY" && \
+    npm config set fetch-timeout 600000 && \
     npm config set fetch-retries 5 && \
     npm ci --legacy-peer-deps
 
@@ -63,6 +76,11 @@ FROM node:22-slim AS node-runtime
 # ============================================
 FROM python:3.11-slim AS python-base
 
+ARG APT_MIRROR
+ARG PIP_INDEX_URL
+ARG RUSTUP_DIST_SERVER
+ARG RUSTUP_UPDATE_ROOT
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -75,7 +93,7 @@ WORKDIR /app
 # Install system dependencies
 # Note: libgl1 and libglib2.0-0 are required for OpenCV (used by mineru)
 # Rust is required for building tiktoken and other packages without pre-built wheels
-RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+RUN sed -i "s|http://deb.debian.org|https://${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
     && apt-get -o Acquire::Retries=3 update \
     && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     curl \
@@ -89,7 +107,9 @@ RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.l
     pkg-config \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    && RUSTUP_DIST_SERVER="${RUSTUP_DIST_SERVER}" RUSTUP_UPDATE_ROOT="${RUSTUP_UPDATE_ROOT}" \
+       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+       | sh -s -- -y --profile minimal --default-toolchain stable
 
 # Add Rust to PATH
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -97,13 +117,19 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Copy requirements and install Python dependencies
 COPY requirements/ ./requirements/
 COPY requirements.txt ./
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+# `--no-compile` keeps .pyc files out of the layer (several hundred MB for a
+# dependency tree this size), and the leftover __pycache__ is removed for the
+# wheels that ship their own.
+RUN pip install --no-cache-dir --no-compile -i "${PIP_INDEX_URL}" --upgrade pip && \
+    pip install --no-cache-dir --no-compile -i "${PIP_INDEX_URL}" -r requirements.txt && \
+    find /usr/local/lib/python3.11/site-packages -name '__pycache__' -type d -prune -exec rm -rf {} +
 
 # ============================================
 # Stage 3: Production Image
 # ============================================
 FROM python:3.11-slim AS production
+
+ARG APT_MIRROR
 
 # Labels
 LABEL maintainer="DeepTutor Team" \
@@ -140,7 +166,7 @@ COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md ./
 # Office previews convert documents to PDF in the main app. Writer, Calc and
 # Impress cover DOCX, XLSX and PPTX; Noto CJK preserves Chinese text and
 # Liberation supplies common Latin font substitutes in the rendered pages.
-RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+RUN sed -i "s|http://deb.debian.org|https://${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
     && apt-get -o Acquire::Retries=3 update \
     && apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
     curl \

@@ -97,11 +97,20 @@ git clone https://github.com/HWOLFeng/DeepTutor.git
 cd DeepTutor
 
 # 首次构建建议用 buildx；镜像名必须全小写
+# --target production 是必须的：Dockerfile 的最后一个 stage 是 development
+# （带 web/node_modules，约 6.9 GB），生产镜像约 3.1 GB。
 docker buildx build `
   --platform linux/amd64 `
+  --target production `
   -t ghcr.io/hwolfeng/deeptutor:latest `
   --push .
 ```
+
+构建默认走国内源（apt 用 aliyun、pip 用 aliyun、npm 用 npmmirror、rustup 用
+USTC）；在其他地区构建时用 `--build-arg` 覆盖，例如
+`--build-arg APT_MIRROR=deb.debian.org --build-arg PIP_INDEX_URL=https://pypi.org/simple
+--build-arg NPM_REGISTRY=https://registry.npmjs.org`。这些参数只影响构建过程，
+不会写进运行环境。
 
 如果暂时不推 GHCR，也可以先构建到本地再导出：
 
