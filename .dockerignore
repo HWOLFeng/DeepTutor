@@ -111,8 +111,10 @@ docker-compose*.yml
 # ============================================
 # User Data (will be mounted as volumes)
 # ============================================
-data/user/
-data/knowledge_bases/
+# The whole tree: the image creates its own empty directories, and anything
+# here is either the learner's data or local tooling (the UI-test browser in
+# data/.tools, ~340 MB). Sending it to the daemon only slows the build down.
+data/
 run_code_workspace/
 
 # ============================================
