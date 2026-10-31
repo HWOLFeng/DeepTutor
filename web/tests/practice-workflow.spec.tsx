@@ -4,6 +4,7 @@ import { PracticeSession } from "@/components/learning/practice/PracticeSession"
 import { PracticeImport } from "@/components/learning/practice/PracticeImport";
 import { initI18n } from "@/i18n/init";
 import * as api from "@/lib/practice-api";
+import * as learningEvents from "@/lib/learning-events";
 
 vi.mock("next/dynamic", () => ({
   default:
@@ -18,6 +19,10 @@ vi.mock("@/lib/practice-api", async importOriginal => ({
   previewPracticeImport: vi.fn(),
   commitPracticeImport: vi.fn(),
   downloadPracticeTemplate: vi.fn(),
+}));
+vi.mock("@/lib/learning-events", () => ({
+  notifyLearningChanged: vi.fn(),
+  subscribeLearningChanges: vi.fn(() => () => {}),
 }));
 initI18n("en");
 beforeEach(() => {
@@ -201,7 +206,7 @@ it("keeps a successful preview available when import saving fails", async () => 
   });
   vi.mocked(api.commitPracticeImport)
     .mockRejectedValueOnce(new Error("Save unavailable"))
-    .mockResolvedValueOnce({ created: 1, duplicates: 0 });
+    .mockResolvedValueOnce({ created: 1, duplicates: 0, total: 1 });
   const onImported = vi.fn();
   render(<PracticeImport onClose={vi.fn()} onImported={onImported} initialTarget="mistakes" />);
   fireEvent.change(screen.getByLabelText(/Choose a question file/), {
@@ -212,7 +217,14 @@ it("keeps a successful preview available when import saving fails", async () => 
   expect(onImported).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Confirm import" }));
   await waitFor(() => expect(onImported).toHaveBeenCalledOnce());
-  expect(api.previewPracticeImport).toHaveBeenCalledWith(expect.any(File), "mistakes");
+  // The sidebar groups imports by file; it must hear about the new one.
+  expect(learningEvents.notifyLearningChanged).toHaveBeenCalled();
+  expect(api.previewPracticeImport).toHaveBeenCalledWith(
+    expect.any(File),
+    "mistakes",
+    undefined,
+    expect.any(Function),
+  );
 });
 
 it("lets the learner uncheck detected questions and imports only the kept ones", async () => {
@@ -257,4 +269,25 @@ it("lets the learner uncheck detected questions and imports only the kept ones",
   await waitFor(() =>
     expect(api.commitPracticeImport).toHaveBeenCalledWith(expect.any(String), [1]),
   );
+});
+
+it("shows the server's import progress while the preview is still running", async () => {
+  let finish!: (value: Awaited<ReturnType<typeof api.previewPracticeImport>>) => void;
+  vi.mocked(api.previewPracticeImport).mockImplementation(
+    async (_files, _target, _label, onProgress) => {
+      onProgress?.({ progress: 1, total: 2, stage: "recognizing" });
+      return new Promise(resolve => {
+        finish = resolve;
+      });
+    },
+  );
+  render(<PracticeImport onClose={vi.fn()} onImported={vi.fn()} initialTarget="bank" />);
+  fireEvent.change(screen.getByLabelText(/Choose a question file/), {
+    target: { files: [new File(["q"], "questions.csv")] },
+  });
+  const bar = await screen.findByRole("progressbar");
+  expect(bar).toHaveAttribute("aria-valuenow", "50");
+  expect(screen.getByRole("status")).toHaveTextContent("2");
+  finish({ token: null, total: 0, valid: 0, errors: [], samples: [] });
+  await waitFor(() => expect(screen.queryByRole("progressbar")).not.toBeInTheDocument());
 });

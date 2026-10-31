@@ -94,7 +94,8 @@ Return ONLY a JSON array. One element per question:
  "explanation": str, "user_answer": str, "tags": [str],
  "page_type": "exercises"|"knowledge_card"|"answer_key",
  "figure_kind": "none"|"geometry"|"graph"|"net"|"table"|"photo"|"text",
- "figure_boxes": [[x0,y0,x1,y1], ...], "figure_svg": str|null}
+ "figure_boxes": [[x0,y0,x1,y1], ...], "figure_svg": str|null,
+ "figure_data": {"kind": "net", "cells": [[row, col, label], ...]} | null}
 
 ROLES — the rule that matters most
 - PRINTED text is the question. HANDWRITING is never part of it.
@@ -138,6 +139,10 @@ FIGURES
   what distinguishes them, so give each its own box and never merge them.
 - Keep figure_svg under 1200 characters, and omit it for photographs, tables
   and anything you cannot redraw faithfully.
+- For a cube net (展开图), return figure_data with the printed squares as
+  0-based [row, col, label]: row 0 is the topmost square, col 0 the leftmost,
+  and label is the number or letter printed inside that square. Report the grid
+  as printed, never the folded cube.
 
 Return at most 40 questions per page, and [] when the page holds no question.
 """
@@ -170,6 +175,20 @@ _SPLIT_RE = re.compile(
 
 class DocumentImportError(ValueError):
     """A PDF/DOCX cannot be turned into practice rows."""
+
+
+def _report(callback, done: int, total: int, stage: str) -> None:
+    """Tell the caller how far a long import got.
+
+    A failing progress callback must never fail the import: the number is for
+    the browser, the questions are for the learner.
+    """
+    if callback is None:
+        return
+    try:
+        callback(done, total, stage)
+    except Exception:
+        logger.debug("import progress callback failed", exc_info=True)
 
 
 def _image_record(data: bytes, name: str, *, optimise: bool = True) -> dict:
@@ -806,6 +825,65 @@ def _attach_images(row: dict, images: dict[str, dict], page_png: bytes | None = 
     row["question_images"] = records[:MAX_IMAGES_PER_QUESTION]
 
 
+def _verify_row(row: dict) -> None:
+    """Let a deterministic verifier outvote the model when it can.
+
+    The second model pass is a second opinion; arithmetic is a proof. A
+    verifier that disagrees marks the row for the preview, and one that agrees
+    clears a model-side disagreement rather than leaving a false alarm.
+    """
+    from .verify import verify_answer
+
+    verdict = verify_answer(
+        str(row.get("question") or ""),
+        str(row.get("correct_answer") or ""),
+        options=row.get("options") or {},
+        qtype=str(row.get("question_type") or ""),
+        figure_data=row.get("figure_data") or None,
+    )
+    if verdict is None or not verdict.decided:
+        return
+    row["verification"] = verdict.reason
+    if verdict.status == "agree":
+        row["answer_verified"] = True
+        row.pop("answer_conflict", None)
+        row.pop("verdict_answer", None)
+        return
+    row["answer_conflict"] = True
+    if verdict.answer:
+        row["verdict_answer"] = verdict.answer
+
+
+def _figure_key(question: dict) -> tuple:
+    """The figure a question is about, for duplicate detection."""
+    key = []
+    for image in question.get("question_images") or []:
+        box = image.get("_box")
+        if isinstance(box, (list, tuple)) and len(box) == 4:
+            key.append(tuple(round(float(value), 2) for value in box))
+        elif image.get("_redrawn"):
+            key.append(("redrawn", str(image.get("filename") or "")))
+    return tuple(key)
+
+
+def merge_duplicate_questions(questions: list[dict]) -> tuple[list[dict], int]:
+    """One figure, one question: drop repeats of the same stem on the same figure.
+
+    A dense page can yield the same row twice. Two rows with the same stem but
+    different figures are *not* duplicates — that is what a sheet of nets looks
+    like — so the figure is part of the identity.
+    """
+    seen: set[tuple] = set()
+    kept: list[dict] = []
+    for question in questions:
+        key = (question.get("question_id") or "", _figure_key(question))
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(question)
+    return kept, len(questions) - len(kept)
+
+
 def _prepare_rows(rows: list[dict], images: dict[str, dict], page_png: bytes | None = None) -> dict:
     from .quality import classify_attempt, strip_answer_leak
 
@@ -834,6 +912,7 @@ def _prepare_rows(rows: list[dict], images: dict[str, dict], page_png: bytes | N
                 options=options if isinstance(options, dict) else {},
             )
             raw["question"] = cleaned
+            _verify_row(row)
             item = _importing.normalize_question(raw)
             item["leaks"] = removed
             item["attempt"] = classify_attempt(
@@ -845,7 +924,9 @@ def _prepare_rows(rows: list[dict], images: dict[str, dict], page_png: bytes | N
             item["answer_source"] = str(row.get("answer_source") or "solved")
             item["answer_conflict"] = bool(row.get("answer_conflict"))
             item["verdict_answer"] = str(row.get("verdict_answer") or "")
+            item["verification"] = str(row.get("verification") or "")
             item["page_type"] = str(row.get("page_type") or "exercises")
+            item["figure_data"] = row.get("figure_data") or None
             questions.append(item)
         except (ValueError, TypeError) as exc:
             errors.append({"row": number, "message": str(exc)})
@@ -856,6 +937,7 @@ async def _import_vision_pages(
     pages: list[tuple[bytes, str, str]],
     *,
     keep_source_image: bool = False,
+    on_progress=None,
 ) -> dict:
     """Turn rendered pages or user images into rows, one model call per page.
 
@@ -867,6 +949,7 @@ async def _import_vision_pages(
     errors: list[dict] = []
     budget = [MAX_FIGURE_VERIFICATIONS]
     for number, (data, mime, name) in enumerate(pages, 1):
+        _report(on_progress, number - 1, len(pages), "recognizing")
         try:
             rows = await _ask_vision_model(data, mime_type=mime, filename=name)
         except DocumentImportError:
@@ -875,6 +958,7 @@ async def _import_vision_pages(
             errors.append({"row": number, "message": f"{name}: {exc}"})
             continue
         if rows and any(str(row.get("answer_source") or "") != "printed" for row in rows):
+            _report(on_progress, number - 1, len(pages), "verifying")
             try:
                 verdicts = await _check_answers(rows, data, mime_type=mime, filename=name)
             except Exception:
@@ -896,9 +980,11 @@ async def _import_vision_pages(
             ]
         questions.extend(prepared["questions"])
         errors.extend(prepared["errors"])
+        _report(on_progress, number, len(pages), "recognizing")
     if len(questions) > 500:
         raise ValueError("Import at most 500 questions at a time")
-    return {"questions": questions, "errors": errors}
+    questions, merged = merge_duplicate_questions(questions)
+    return {"questions": questions, "errors": errors, "duplicates_merged": merged}
 
 
 def _check_image(data: bytes, name: str) -> None:
@@ -912,7 +998,7 @@ def _check_image(data: bytes, name: str) -> None:
         raise ValueError(f"{name} is not a readable PNG, JPEG, WebP or GIF image") from exc
 
 
-async def preview_images(images: list[tuple[bytes, str]]) -> dict:
+async def preview_images(images: list[tuple[bytes, str]], on_progress=None) -> dict:
     """Import several screenshots or photos of questions as one batch."""
     if not images:
         raise ValueError("Select at least one image")
@@ -920,6 +1006,7 @@ async def preview_images(images: list[tuple[bytes, str]]) -> dict:
         raise ValueError(f"Import at most {MAX_IMPORT_IMAGES} images at a time")
     pages: list[tuple[bytes, str, str]] = []
     total = 0
+    _report(on_progress, 0, len(images), "preparing")
     for data, name in images:
         suffix = Path(name).suffix.lower()
         if suffix not in _IMAGE_MIME:
@@ -942,16 +1029,19 @@ async def preview_images(images: list[tuple[bytes, str]]) -> dict:
     client = _llm_client()
     if not _client_supports_vision(client):
         raise _vision_unavailable_error(client, "these images cannot be imported")
-    parsed = await _import_vision_pages(pages, keep_source_image=True)
+    parsed = await _import_vision_pages(
+        pages, keep_source_image=True, on_progress=on_progress
+    )
     if not parsed["questions"] and not parsed["errors"]:
         raise ValueError("No questions were found in these images")
     return parsed
 
 
-async def preview_document(data: bytes, filename: str) -> dict:
+async def preview_document(data: bytes, filename: str, on_progress=None) -> dict:
     if not data or len(data) > _importing.MAX_BYTES:
         raise ValueError("Choose a non-empty file up to 5 MB")
     suffix = Path(filename).suffix.lower()
+    _report(on_progress, 0, 1, "reading")
     if suffix == ".pdf":
         text, images, pages, _has_images = await asyncio.to_thread(_extract_pdf_rich, data)
     elif suffix == ".docx":
@@ -977,7 +1067,8 @@ async def preview_document(data: bytes, filename: str) -> dict:
             [
                 (page_png, "image/png", f"page-{number:02d}.png")
                 for number, page_png in enumerate(page_pngs, 1)
-            ]
+            ],
+            on_progress=on_progress,
         )
         if not parsed["questions"] and not parsed["errors"]:
             raise ValueError("The PDF contains no questions")
@@ -987,6 +1078,7 @@ async def preview_document(data: bytes, filename: str) -> dict:
         raise ValueError("The document contains no readable text or questions")
 
     rows = text_rows
+    _report(on_progress, 0, 1, "structuring")
     missing_answer = any(not str(row.get("correct_answer") or "").strip() for row in rows)
     errors: list[dict] = []
     if rows and not missing_answer:
@@ -1006,4 +1098,6 @@ async def preview_document(data: bytes, filename: str) -> dict:
         raise ValueError("No questions were found in this document")
     if len(prepared["questions"]) > 500:
         raise ValueError("Import at most 500 questions at a time")
-    return {"questions": prepared["questions"], "errors": errors}
+    questions, merged = merge_duplicate_questions(prepared["questions"])
+    _report(on_progress, 1, 1, "structuring")
+    return {"questions": questions, "errors": errors, "duplicates_merged": merged}

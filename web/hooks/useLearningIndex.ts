@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { readClientCache, withClientCache } from '@/lib/client-cache'
 import { usePathname } from 'next/navigation'
 import { apiFetch, apiUrl } from '@/lib/api'
+import { subscribeLearningChanges } from '@/lib/learning-events'
 import { subscribeSessionChanges } from '@/lib/session-events'
 import type { LearningKind, LearningSources } from '@/lib/learning-dashboard'
 
@@ -69,12 +70,16 @@ export function useLearningIndex(enabled = true) {
     }
     void refresh()
     const unsubscribe = subscribeSessionChanges(() => void refresh())
+    // An import or a review saves from a page that cannot reach this list;
+    // without the signal a freshly imported file waits for a manual reload.
+    const unsubscribeLearning = subscribeLearningChanges(() => void refresh())
     window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', refresh)
     const timer = window.setInterval(refresh, 30000)
     return () => {
       alive = false
       unsubscribe()
+      unsubscribeLearning()
       window.clearInterval(timer)
       window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', refresh)

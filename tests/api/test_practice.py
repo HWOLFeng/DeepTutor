@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 import sqlite3
+import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -838,7 +839,9 @@ def _patch_vision(monkeypatch, rows, verdicts=None):
     monkeypatch.setattr(document_import, "_active_model_vision", lambda: True)
     monkeypatch.setattr(document_import, "_ask_vision_model", _vision_rows(rows))
     monkeypatch.setattr(document_import, "_check_answers", no_verdicts)
-    monkeypatch.setattr("deeptutor.services.storage.get_attachment_store", _FakeAttachmentStore)
+    monkeypatch.setattr(
+        "deeptutor.services.storage.get_attachment_store", lambda: _FakeAttachmentStore()
+    )
 
 
 def test_commit_imports_only_the_selected_questions(bank):
@@ -964,3 +967,202 @@ def test_a_disagreeing_second_pass_is_flagged_not_silently_replaced(bank, monkey
     assert row["answer_conflict"] is True
     assert row["verdict_answer"] == "6"
     assert row["correct_answer"] == "3"  # two guesses are not evidence
+
+
+def test_a_wrong_solved_answer_is_flagged_by_arithmetic(bank, monkeypatch):
+    """Arithmetic outranks the second model pass: 25+14-6 is 33, not 31."""
+    _patch_vision(
+        monkeypatch,
+        [
+            {
+                "question": "用“○”画出先算什么，再计算。$25+14-6$",
+                "question_type": "short_answer",
+                "options": {},
+                "correct_answer": "31",
+                "user_answer": "",
+                "explanation": "",
+                "tags": [],
+                "figure_boxes": [],
+            }
+        ],
+    )
+    _store, _repo, client = bank
+    preview = client.post(
+        "/practice/import/preview",
+        files=[("files", ("page.png", _figure_png(), "image/png"))],
+        data={"target": "bank"},
+    ).json()
+    row = preview["questions"][0]
+    assert row["answer_conflict"] is True
+    assert row["verdict_answer"] == "33"
+    assert "25+14-6" in row["verification"]
+
+
+def test_a_cube_net_answer_is_checked_against_the_folded_net(bank, monkeypatch):
+    """The model reports the grid; the solver folds it and decides the answer."""
+    net = [[0, 1, "1"], [1, 0, "2"], [1, 1, "4"], [1, 2, "5"], [1, 3, "6"], [2, 1, "3"]]
+    _patch_vision(
+        monkeypatch,
+        [
+            {
+                "question": "数字1的对立面是（　　）；数字2的对立面是（　　）；数字3的对立面是（　　）",
+                "question_type": "short_answer",
+                "options": {},
+                "correct_answer": "3；6；5",
+                "user_answer": "",
+                "explanation": "",
+                "tags": [],
+                "figure_boxes": [[0.1, 0.1, 0.5, 0.5]],
+                "figure_data": {"kind": "net", "cells": net},
+            }
+        ],
+    )
+    _store, _repo, client = bank
+    preview = client.post(
+        "/practice/import/preview",
+        files=[("files", ("page.png", _figure_png(), "image/png"))],
+        data={"target": "mistakes"},
+    ).json()
+    row = preview["questions"][0]
+    assert row["answer_conflict"] is True
+    assert row["verdict_answer"] == "3; 5; 1"
+
+
+def test_the_same_question_on_one_figure_is_merged(bank, monkeypatch):
+    row = {
+        "question": "数字1的对立面是（　　）",
+        "question_type": "short_answer",
+        "options": {},
+        "correct_answer": "3",
+        "user_answer": "",
+        "explanation": "",
+        "tags": [],
+        "figure_boxes": [[0.1, 0.1, 0.5, 0.5]],
+    }
+    _patch_vision(monkeypatch, [dict(row), dict(row)])
+    _store, _repo, client = bank
+    preview = client.post(
+        "/practice/import/preview",
+        files=[("files", ("page.png", _figure_png(), "image/png"))],
+        data={"target": "mistakes"},
+    ).json()
+    assert len(preview["questions"]) == 1
+    assert preview["duplicates_merged"] == 1
+
+
+def test_the_same_stem_on_different_figures_stays_two_questions(bank, monkeypatch):
+    """A sheet of nets prints one identical stem per figure; that is not a repeat."""
+    base = {
+        "question": "数字1的对立面是（　　）",
+        "question_type": "short_answer",
+        "options": {},
+        "correct_answer": "3",
+        "user_answer": "",
+        "explanation": "",
+        "tags": [],
+    }
+    _patch_vision(
+        monkeypatch,
+        [
+            {**base, "figure_boxes": [[0.05, 0.05, 0.3, 0.3]]},
+            {**base, "figure_boxes": [[0.35, 0.05, 0.6, 0.3]]},
+        ],
+    )
+    _store, _repo, client = bank
+    preview = client.post(
+        "/practice/import/preview",
+        files=[("files", ("page.png", _figure_png(), "image/png"))],
+        data={"target": "mistakes"},
+    ).json()
+    assert len(preview["questions"]) == 2
+    assert preview["duplicates_merged"] == 0
+
+
+def test_an_import_job_reports_progress_and_finishes(bank, monkeypatch):
+    """A long import must be pollable: the browser needs a number, not a spinner."""
+    _patch_vision(
+        monkeypatch,
+        [
+            {
+                "question": "秋天是 liáng shuǎng（凉爽）的。",
+                "question_type": "short_answer",
+                "options": {},
+                "correct_answer": "凉爽",
+                "user_answer": "凉爽",
+                "explanation": "",
+                "tags": [],
+                "figure_boxes": [],
+            }
+        ],
+    )
+    _store, _repo, client = bank
+    started = client.post(
+        "/practice/import/jobs",
+        files=[("files", ("page.png", _figure_png(), "image/png"))],
+        data={"target": "bank"},
+    )
+    assert started.status_code == 200, started.text
+    job_id = started.json()["job_id"]
+    job: dict = {}
+    for _ in range(200):
+        job = client.get(f"/practice/import/jobs/{job_id}").json()
+        if job["status"] in {"done", "failed"}:
+            break
+        time.sleep(0.05)
+    assert job["status"] == "done", job
+    assert job["progress"] == job["total"] == 1
+    assert job["preview"]["valid"] == 1 and job["preview"]["token"]
+    # The staged preview is the same one the synchronous endpoint would return.
+    commit = client.post(
+        "/practice/import/commit",
+        json={"token": job["preview"]["token"], "selected": [0]},
+    ).json()
+    assert commit["created"] == 1
+
+
+def test_an_unknown_import_job_is_a_404(bank):
+    _store, _repo, client = bank
+    assert client.get("/practice/import/jobs/nope").status_code == 404
+
+
+def test_an_imported_mistake_is_due_today(bank):
+    """A batch the learner just filed is for today, not for tomorrow."""
+    store, repo, client = bank
+    data = "题目,题型,A,B,答案\n1+1=?,单选题,1,2,B\n".encode()
+    preview = client.post(
+        "/practice/import/preview", files={"file": ("m.csv", data)}, data={"target": "mistakes"}
+    ).json()
+    client.post("/practice/import/commit", json={"token": preview["token"]})
+    summary = client.get("/practice/summary?timezone=UTC").json()
+    assert summary["due"] == 1 and summary["mistakes"] == 1
+    entries = client.get("/practice/queue?timezone=UTC").json()
+    assert [row["entry"]["question"] for row in entries] == ["1+1=?"]
+
+
+def test_an_imported_correct_answer_is_due_today_but_is_not_a_mistake(bank, monkeypatch):
+    """The folder decides the schedule; the evidence decides the badge."""
+    _patch_vision(
+        monkeypatch,
+        [
+            {
+                "question": "2+2=?",
+                "question_type": "single_choice",
+                "options": {"A": "3", "B": "4"},
+                "correct_answer": "B",
+                "user_answer": "B",
+                "explanation": "2+2=4",
+                "tags": [],
+                "figure_boxes": [],
+                "answer_source": "printed",
+            }
+        ],
+    )
+    _store, _repo, client = bank
+    preview = client.post(
+        "/practice/import/preview",
+        files=[("files", ("page.png", _figure_png(), "image/png"))],
+        data={"target": "mistakes"},
+    ).json()
+    client.post("/practice/import/commit", json={"token": preview["token"]})
+    summary = client.get("/practice/summary?timezone=UTC").json()
+    assert summary["due"] == 1 and summary["mistakes"] == 0

@@ -2445,7 +2445,7 @@
   "Couldn't import": "无法导入",
   "Select folder": "选择文件夹",
   "Import {{count}} conversations": "导入 {{count}} 条对话",
-  "Done": "已完成",
+  "Done": "完成",
   "Try again": "重试",
   "My Agents": "子智能体",
   "Imported conversations": "导入的对话",
@@ -6217,5 +6217,13 @@
   "Blank restored": "已还原空位",
   "No answer": "无答案",
   "Import selected ({{count}})": "导入已选（{{count}}）",
-  "{{count}} answers were solved by the model — check them before importing.": "{{count}} 道题的答案由模型求解，导入前请核对。"
+  "{{count}} answers were solved by the model — check them before importing.": "{{count}} 道题的答案由模型求解，导入前请核对。",
+  "Import progress": "导入进度",
+  "Preparing images": "准备图片",
+  "Reading the document": "读取文档",
+  "Recognising questions": "识别题目",
+  "Checking answers": "核对答案",
+  "Structuring questions": "整理题目",
+  "Saving figures": "保存题图",
+  "{{count}} duplicate questions on the same figure were merged.": "同一张图上的 {{count}} 道重复题目已合并。"
 }

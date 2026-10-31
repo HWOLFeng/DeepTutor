@@ -3,6 +3,7 @@
 import Markdown from '@/components/common/MarkdownRenderer'
 import { QuestionFigures } from '@/components/common/QuestionFigures'
 import { practiceMarkdown } from '@/lib/practice-content'
+import { notifyLearningChanged } from '@/lib/learning-events'
 import { randomUuid } from '@/lib/random-uuid'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -206,6 +207,8 @@ function PracticeTurn({
     }
     try {
       const result = await savePracticeReview(id, submission.current, workspaceId)
+      // A saved review changes the counts the sidebar shows for this set.
+      notifyLearningChanged()
       onSaved(result.due_at, result.rating)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

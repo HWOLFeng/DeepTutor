@@ -65,6 +65,8 @@ export interface ImportPreview {
   /** Every detected question; the learner unchecks the ones to leave out. */
   questions?: ImportQuestion[]
   samples: ImportQuestion[]
+  /** Rows the importer dropped because the same figure repeated them. */
+  duplicates_merged?: number
 }
 export class PracticeRequestError extends Error {
   constructor(
@@ -122,11 +124,17 @@ export const savePracticeReview = (
     json(body),
     workspaceId
   )
-export function previewPracticeImport(
+/** Upload, then poll the job so the panel can show a real number.
+ *
+ * A scanned page takes tens of seconds; a single long request leaves the
+ * browser with nothing to render. The server owns the progress, the client
+ * only mirrors it. */
+export async function previewPracticeImport(
   files: File | readonly File[],
   target: 'bank' | 'mistakes',
-  label?: string
-) {
+  label?: string,
+  onProgress?: (progress: ImportProgress) => void
+): Promise<ImportPreview> {
   const data = new FormData()
   const selected = Array.isArray(files) ? files : [files]
   if (selected.length > 1) {
@@ -138,7 +146,36 @@ export function previewPracticeImport(
   }
   data.append('target', target)
   if (label) data.append('label', label)
-  return request<ImportPreview>('/import/preview', { method: 'POST', body: data })
+  const started = await request<{ job_id: string; total: number }>('/import/jobs', {
+    method: 'POST',
+    body: data,
+  })
+  onProgress?.({ progress: 0, total: started.total || 1, stage: 'queued' })
+  // 1200 * 500ms = ten minutes, well past the 40 pages the API accepts.
+  for (let attempt = 0; attempt < 1200; attempt += 1) {
+    const job = await request<ImportJob>(`/import/jobs/${started.job_id}`)
+    onProgress?.({ progress: job.progress, total: Math.max(1, job.total), stage: job.stage })
+    if (job.status === 'done' && job.preview) return job.preview
+    if (job.status === 'failed') {
+      throw new PracticeRequestError(job.error || 'The import failed', 422)
+    }
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+  throw new PracticeRequestError('The import took too long. Try fewer pages at a time.', 504)
+}
+export interface ImportJob {
+  id: string
+  status: 'queued' | 'running' | 'done' | 'failed'
+  stage: string
+  progress: number
+  total: number
+  error: string
+  preview: ImportPreview | null
+}
+export interface ImportProgress {
+  progress: number
+  total: number
+  stage: string
 }
 export const commitPracticeImport = (token: string, selected?: number[]) =>
   request<{ created: number; duplicates: number; total: number; mistakes?: number }>(

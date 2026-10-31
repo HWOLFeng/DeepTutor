@@ -31,10 +31,13 @@ it("starts a practice session for the grouped file", async () => {
     total: 2,
     items: [{ id: 3 }, { id: 1 }] as never,
   });
-  render(<PracticePage />);
+  const { container } = render(<PracticePage />);
   await waitFor(() =>
     expect(screen.getByTestId("session").textContent).toBe("3,1|三年级.docx")
   );
+  // The page shell is the scroll container; without it the card grows past the
+  // viewport inside AppShell's clipped frame and its buttons become unreachable.
+  expect(container.querySelector("[data-feature-page]")).not.toBeNull();
   expect(vi.mocked(bank.listNotebookEntries)).toHaveBeenCalledWith(
     expect.objectContaining({ material_id: "import:a" })
   );

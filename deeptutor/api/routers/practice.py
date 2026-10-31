@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import csv
 import io
+import logging
 from pathlib import Path
+import threading
 import time
 from typing import Literal
 import uuid
@@ -24,6 +27,8 @@ from deeptutor.services.session import get_sqlite_session_store
 from .question_notebook import NotebookEntryItem
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 class PracticeSummary(BaseModel):
@@ -259,12 +264,78 @@ def _is_image_name(name: str) -> bool:
     return Path(name).suffix.lower() in _IMAGE_SUFFIXES
 
 
-def _image_group_name(uploads: list[UploadFile]) -> str:
-    """The label a multi-image batch is filed under in the sidebar."""
-    if len(uploads) == 1:
-        return uploads[0].filename or "image.png"
-    first = Path(uploads[0].filename or "image.png").name
-    return f"{first} and {len(uploads) - 1} more"
+def _payload_limits(images_only: bool) -> int:
+    from deeptutor.services.practice.document_import import MAX_IMAGE_IMPORT_BYTES
+
+    return MAX_IMAGE_IMPORT_BYTES if images_only else MAX_BYTES
+
+
+def _validate_uploads(uploads: list[UploadFile]) -> bool:
+    if not uploads:
+        raise HTTPException(422, "Select a file or images to import")
+    images_only = all(_is_image_name(upload.filename or "") for upload in uploads)
+    if len(uploads) > 1 and not images_only:
+        raise HTTPException(
+            422, "When importing several files at once, all of them must be images"
+        )
+    return images_only
+
+
+async def _read_uploads(
+    uploads: list[UploadFile], images_only: bool
+) -> list[tuple[bytes, str]]:
+    from deeptutor.services.practice.document_import import MAX_IMAGE_IMPORT_BYTES
+
+    limit = MAX_IMAGE_IMPORT_BYTES if images_only else MAX_BYTES
+    payload: list[tuple[bytes, str]] = []
+    for upload in uploads:
+        payload.append((await upload.read(limit + 1), upload.filename or "image.png"))
+    return payload
+
+
+async def _parse_payload(
+    payload: list[tuple[bytes, str]],
+    *,
+    images_only: bool,
+    target: str,
+    label: str,
+    on_progress=None,
+) -> tuple[dict, str]:
+    """Turn uploaded bytes into rows. Shared by the sync and job endpoints."""
+    if images_only:
+        from deeptutor.services.practice.document_import import preview_images
+
+        parsed = await preview_images(payload, on_progress=on_progress)
+        return parsed, label.strip()[:160] or _group_label([name for _, name in payload])
+    data, filename = payload[0]
+    suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if suffix in {"pdf", "docx"}:
+        from deeptutor.services.practice.document_import import preview_document
+
+        return await preview_document(data, filename, on_progress=on_progress), filename
+    return await asyncio.to_thread(preview, data, filename), filename
+
+
+def _group_label(names: list[str]) -> str:
+    if len(names) == 1:
+        return names[0] or "image.png"
+    first = Path(names[0] or "image.png").name
+    return f"{first} and {len(names) - 1} more"
+
+
+def _preview_payload(parsed: dict, token: str | None) -> dict:
+    return {
+        "token": token,
+        "total": len(parsed["questions"]) + len(parsed["errors"]),
+        "valid": len(parsed["questions"]),
+        "errors": parsed["errors"],
+        # The full list, not a sample: OCR is probabilistic, so the learner
+        # has to be able to uncheck the rows that came out wrong. ``samples``
+        # stays for older clients that only render a preview strip.
+        "questions": parsed["questions"],
+        "samples": parsed["questions"][:5],
+        "duplicates_merged": parsed.get("duplicates_merged", 0),
+    }
 
 
 @router.post("/import/preview")
@@ -280,37 +351,12 @@ async def import_preview(
     sidebar aggregates them as a single group instead of one row per photo.
     """
     uploads = ([file] if file is not None else []) + list(files or [])
-    if not uploads:
-        raise HTTPException(422, "Select a file or images to import")
-    images_only = all(_is_image_name(upload.filename or "") for upload in uploads)
-    if len(uploads) > 1 and not images_only:
-        raise HTTPException(
-            422, "When importing several files at once, all of them must be images"
-        )
+    images_only = _validate_uploads(uploads)
     try:
-        if images_only:
-            from deeptutor.services.practice.document_import import (
-                MAX_IMAGE_IMPORT_BYTES,
-                preview_images,
-            )
-
-            payload = []
-            for upload in uploads:
-                data = await upload.read(MAX_IMAGE_IMPORT_BYTES + 1)
-                payload.append((data, upload.filename or "image.png"))
-            parsed = await preview_images(payload)
-            filename = label.strip()[:160] or _image_group_name(uploads)
-        else:
-            upload = uploads[0]
-            data = await upload.read(MAX_BYTES + 1)
-            filename = upload.filename or ""
-            suffix = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-            if suffix in {"pdf", "docx"}:
-                from deeptutor.services.practice.document_import import preview_document
-
-                parsed = await preview_document(data, filename)
-            else:
-                parsed = await asyncio.to_thread(preview, data, filename)
+        payload = await _read_uploads(uploads, images_only)
+        parsed, filename = await _parse_payload(
+            payload, images_only=images_only, target=target, label=label
+        )
     except (ValueError, UnicodeError, OSError, zipfile.BadZipFile, KeyError, ParseError) as exc:
         raise HTTPException(422, str(exc)) from exc
     finally:
@@ -325,17 +371,89 @@ async def import_preview(
             target,
             parsed["questions"],
         )
-    return {
-        "token": token,
-        "total": len(parsed["questions"]) + len(parsed["errors"]),
-        "valid": len(parsed["questions"]),
-        "errors": parsed["errors"],
-        # The full list, not a sample: OCR is probabilistic, so the learner
-        # has to be able to uncheck the rows that came out wrong. ``samples``
-        # stays for older clients that only render a preview strip.
-        "questions": parsed["questions"],
-        "samples": parsed["questions"][:5],
-    }
+    return _preview_payload(parsed, token)
+
+
+@router.post("/import/jobs")
+async def start_import_job(
+    file: UploadFile | None = File(None),
+    files: list[UploadFile] | None = File(None),
+    target: Literal["bank", "mistakes"] = Form("bank"),
+    label: str = Form(""),
+):
+    """Start a preview in the background and return a job to poll.
+
+    A scanned handout takes tens of seconds per page; holding the request open
+    gives the browser nothing to show. The worker writes its progress into the
+    job row, so a reload mid-import picks the number back up.
+    """
+    uploads = ([file] if file is not None else []) + list(files or [])
+    images_only = _validate_uploads(uploads)
+    try:
+        payload = await _read_uploads(uploads, images_only)
+    finally:
+        for upload in uploads:
+            await upload.close()
+    store = get_sqlite_session_store()
+    job_id = await asyncio.to_thread(PracticeStore(store.db_path).create_import_job, len(payload))
+    # A plain thread does not inherit contextvars, and the attachment store
+    # resolves the content workspace from one. Carrying the context across is
+    # what keeps the figures in the workspace the learner is looking at.
+    context = contextvars.copy_context()
+    thread = threading.Thread(
+        target=context.run,
+        args=(_run_import_job, job_id, store.db_path, payload, images_only, target, label),
+        name=f"practice-import-{job_id[:8]}",
+        daemon=True,
+    )
+    thread.start()
+    return {"job_id": job_id, "total": len(payload)}
+
+
+@router.get("/import/jobs/{job_id}")
+async def import_job(job_id: str):
+    store = get_sqlite_session_store()
+    job = await asyncio.to_thread(PracticeStore(store.db_path).get_import_job, job_id)
+    if job is None:
+        raise HTTPException(404, "Import job not found")
+    return job
+
+
+def _run_import_job(
+    job_id: str,
+    db_path: Path,
+    payload: list[tuple[bytes, str]],
+    images_only: bool,
+    target: str,
+    label: str,
+) -> None:
+    """Worker thread: parse, store figures, stage, and publish progress."""
+    practice = PracticeStore(db_path)
+
+    def progress(done: int, total: int, stage: str) -> None:
+        practice.update_import_job(
+            job_id, progress=done, total=max(1, total), stage=stage, status="running"
+        )
+
+    try:
+        parsed, filename = asyncio.run(
+            _parse_payload(
+                payload,
+                images_only=images_only,
+                target=target,
+                label=label,
+                on_progress=progress,
+            )
+        )
+        practice.update_import_job(job_id, stage="storing", status="running")
+        token = None
+        if not parsed["errors"]:
+            asyncio.run(_persist_question_images(parsed["questions"]))
+            token = practice.stage_import(filename, target, parsed["questions"])
+        practice.finish_import_job(job_id, _preview_payload(parsed, token))
+    except Exception as exc:  # the browser gets the message, the job gets closed
+        logger.warning("practice import job %s failed", job_id, exc_info=True)
+        practice.fail_import_job(job_id, str(exc) or exc.__class__.__name__)
 
 
 async def _persist_question_images(questions: list[dict]) -> None:

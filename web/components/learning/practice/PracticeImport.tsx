@@ -8,8 +8,10 @@ import {
   downloadPracticeTemplate,
   previewPracticeImport,
   type ImportPreview,
+  type ImportProgress,
 } from "@/lib/practice-api";
 import { QuestionFigures } from "@/components/common/QuestionFigures";
+import { notifyLearningChanged } from "@/lib/learning-events";
 
 /** Phone photos are several megabytes each; shrink them before upload so a
  *  batch of screenshots still fits the request, without losing legibility.
@@ -64,11 +66,27 @@ export function PracticeImport({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [filename, setFilename] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
   const pending = useRef(false);
   const [error, setError] = useState("");
   // OCR is probabilistic, so every detected question is offered as a choice.
   // All of them start checked; the learner unchecks what came out wrong.
   const rows = preview ? preview.questions ?? preview.samples : [];
+  const percent = progress
+    ? Math.min(100, Math.round((progress.progress / Math.max(1, progress.total)) * 100))
+    : 0;
+  const stageLabel = progress
+    ? ({
+        queued: t("Queued"),
+        preparing: t("Preparing images"),
+        reading: t("Reading the document"),
+        recognizing: t("Recognising questions"),
+        verifying: t("Checking answers"),
+        structuring: t("Structuring questions"),
+        storing: t("Saving figures"),
+        done: t("Done"),
+      }[progress.stage] ?? t("Processing…"))
+    : t("Processing…");
   // Answers the model worked out itself are guesses; the printed ones are not.
   const solvedCount = rows.filter(row => row.answer_source === "solved").length;
   const allSelected = rows.length > 0 && selected.size === rows.length;
@@ -97,6 +115,7 @@ export function PracticeImport({
     setBusy(true);
     setError("");
     setPreview(null);
+    setProgress({ progress: 0, total: chosen.length, stage: "queued" });
     const label = multi
       ? t("{{count}} images: {{name}}", {
           name: chosen[0].name,
@@ -107,8 +126,8 @@ export function PracticeImport({
     try {
       const prepared = await Promise.all(chosen.map(shrinkQuestionImage));
       const result = multi
-        ? await previewPracticeImport(prepared, target, label)
-        : await previewPracticeImport(prepared[0], target);
+        ? await previewPracticeImport(prepared, target, label, setProgress)
+        : await previewPracticeImport(prepared[0], target, undefined, setProgress);
       setPreview(result);
       setSelected(new Set((result.questions ?? result.samples).map((_, index) => index)));
     } catch (err) {
@@ -116,6 +135,7 @@ export function PracticeImport({
     } finally {
       pending.current = false;
       setBusy(false);
+      setProgress(null);
     }
   }
   async function commit() {
@@ -132,6 +152,8 @@ export function PracticeImport({
         preview.token,
         rows.length > 0 ? [...selected].sort((a, b) => a - b) : undefined
       );
+      // The sidebar groups imports by file; it has no idea a new one landed.
+      notifyLearningChanged();
       onImported(t("Imported {{created}} questions; skipped {{duplicates}} duplicates.", result));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -217,10 +239,30 @@ export function PracticeImport({
         </span>
       </label>
       {busy && (
-        <p role="status" className="mt-3 flex items-center gap-2 text-sm">
-          <Loader2 size={16} className="animate-spin" />
-          {t("Processing…")}
-        </p>
+        <div className="mt-3 space-y-1">
+          <div
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+            aria-label={t("Import progress")}
+            className="h-2 w-full overflow-hidden rounded-full bg-muted"
+          >
+            <div
+              className={
+                percent > 0
+                  ? "h-full rounded-full bg-primary transition-all"
+                  : "h-full w-1/3 animate-pulse rounded-full bg-primary"
+              }
+              style={percent > 0 ? { width: `${percent}%` } : undefined}
+            />
+          </div>
+          <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 size={13} className="animate-spin" />
+            {stageLabel}
+            {progress && progress.total > 1 ? ` · ${progress.progress} / ${progress.total}` : ""}
+          </p>
+        </div>
       )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-destructive">
@@ -270,6 +312,13 @@ export function PracticeImport({
                 </p>
               ))}
             </div>
+          )}
+          {(preview.duplicates_merged ?? 0) > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t("{{count}} duplicate questions on the same figure were merged.", {
+                count: preview.duplicates_merged,
+              })}
+            </p>
           )}
           {solvedCount > 0 && (
             <p className="text-xs text-amber-700 dark:text-amber-300">

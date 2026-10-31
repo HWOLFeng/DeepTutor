@@ -13,8 +13,13 @@ from .scheduler import DAY, Rating, day_bounds, schedule
 
 # Legacy correct or manually mastered questions start with a three-day interval.
 # Once reviewed, the saved adaptive schedule is authoritative.
+#: When a question is due. An explicit review state always wins: a learner who
+#: imports a set for today must not have it pushed three days out by the legacy
+#: "correct questions rest for three days" rule, which now only applies to a
+#: question that was never enrolled in review at all.
 _DUE_AT_SQL = """(CASE WHEN (n.resolved=1 OR n.is_correct=1)
-    AND COALESCE(r.review_count, 0)=0 THEN n.updated_at + 259200
+    AND COALESCE(r.review_count, 0)=0 AND (r.entry_id IS NULL OR n.resolved=1)
+    THEN n.updated_at + 259200
     ELSE COALESCE(r.due_at, n.created_at) END)"""
 
 
@@ -67,6 +72,17 @@ def initialize_practice(conn: sqlite3.Connection) -> None:
             outcome_json TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_practice_history ON practice_review_events(entry_id, reviewed_at);
+        CREATE TABLE IF NOT EXISTS practice_import_jobs (
+            id TEXT PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'queued',
+            stage TEXT NOT NULL DEFAULT '',
+            progress INTEGER NOT NULL DEFAULT 0,
+            total INTEGER NOT NULL DEFAULT 1,
+            error TEXT NOT NULL DEFAULT '',
+            preview_json TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS practice_imports (
             token TEXT PRIMARY KEY,
             filename TEXT NOT NULL,
@@ -320,6 +336,83 @@ class PracticeStore:
             )
         return outcome
 
+    # ---- import jobs ---------------------------------------------------
+    # A vision import runs for a minute or two; the browser needs a number to
+    # render, not a spinner. The job row is the progress channel and survives
+    # a page reload, which an in-process dict would not.
+
+    def create_import_job(self, total: int) -> str:
+        job_id = uuid.uuid4().hex
+        now = time.time()
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM practice_import_jobs WHERE created_at < ?", (now - 3600,)
+            )
+            conn.execute(
+                """INSERT INTO practice_import_jobs(id, status, stage, progress, total,
+                    error, preview_json, created_at, updated_at)
+                   VALUES(?, 'queued', 'queued', 0, ?, '', '', ?, ?)""",
+                (job_id, max(1, int(total)), now, now),
+            )
+        return job_id
+
+    def update_import_job(
+        self,
+        job_id: str,
+        *,
+        progress: int | None = None,
+        total: int | None = None,
+        stage: str | None = None,
+        status: str | None = None,
+    ) -> None:
+        fields, params = [], []
+        for column, value in (
+            ("progress", progress),
+            ("total", total),
+            ("stage", stage),
+            ("status", status),
+        ):
+            if value is not None:
+                fields.append(f"{column} = ?")
+                params.append(value)
+        if not fields:
+            return
+        fields.append("updated_at = ?")
+        params.append(time.time())
+        params.append(job_id)
+        with self.connect() as conn:
+            conn.execute(
+                f"UPDATE practice_import_jobs SET {', '.join(fields)} WHERE id = ?",  # nosec B608
+                params,
+            )
+
+    def finish_import_job(self, job_id: str, preview: dict) -> None:
+        now = time.time()
+        with self.connect() as conn:
+            conn.execute(
+                """UPDATE practice_import_jobs SET status='done', stage='done',
+                   progress=total, preview_json=?, updated_at=? WHERE id=?""",
+                (json.dumps(preview, ensure_ascii=False), now, job_id),
+            )
+
+    def fail_import_job(self, job_id: str, error: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE practice_import_jobs SET status='failed', error=?, updated_at=? WHERE id=?",
+                (error[:500], time.time(), job_id),
+            )
+
+    def get_import_job(self, job_id: str) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM practice_import_jobs WHERE id=?", (job_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        job = dict(row)
+        job["preview"] = json.loads(job.pop("preview_json") or "null")
+        return job
+
     def stage_import(self, filename: str, target: str, questions: list[dict]) -> str:
         token, now = uuid.uuid4().hex, time.time()
         with self.connect() as conn:
@@ -428,16 +521,26 @@ class PracticeStore:
                             entry_id,
                         ),
                     )
-                if result == "incorrect":
+                if staged["target"] == "mistakes":
+                    # An import into mistakes is the learner saying "practise
+                    # these"; the batch is due today, not tomorrow. Correct
+                    # answers stay out of the mistake set but are still
+                    # reviewable — the row's own evidence decides the badge,
+                    # the folder decides the schedule.
+                    mistake = 1 if result == "incorrect" else 0
                     conn.execute(
-                        "INSERT OR IGNORE INTO practice_review_state(entry_id, first_wrong_at, due_at) VALUES(?, ?, ?)",
-                        (entry_id, now, now + DAY),
+                        """INSERT OR IGNORE INTO practice_review_state(
+                            entry_id, is_mistake, first_wrong_at, due_at)
+                           VALUES(?, ?, ?, ?)""",
+                        (entry_id, mistake, now, now),
                     )
                     conn.execute(
-                        """UPDATE practice_review_state SET is_mistake=1, first_wrong_at=?,
-                            due_at=?, interval_days=1, version=version+1
-                            WHERE entry_id=? AND is_mistake=0""",
-                        (now, now + DAY, entry_id),
+                        """UPDATE practice_review_state SET due_at=?,
+                            is_mistake=MAX(is_mistake, ?),
+                            first_wrong_at=CASE WHEN ?=1 THEN ? ELSE first_wrong_at END,
+                            interval_days=1, version=version+1
+                           WHERE entry_id=? AND review_count=0""",
+                        (now, mistake, mistake, now, entry_id),
                     )
                 for tag in question["tags"]:
                     conn.execute(

@@ -22,7 +22,10 @@
 | `deeptutor/services/practice/document_import.py` | PDF/DOCX 富文本、扫描页视觉识别、多图成组导入、图片压缩、题图裁剪/复核/SVG 重绘 |
 | `deeptutor/services/practice/importing.py` | xlsx 行锚定图片、data URI、图片数量上限 |
 | `deeptutor/services/practice/quality.py` | 答案归一化、错题判定、空位还原、重复题指纹 |
+| `deeptutor/services/practice/verify.py` | 确定性校验：算式求值、等式链、选择题结构、正方体展开图 |
 | `scripts/eval_practice_ocr.py` | 真实照片识别评测（题数/答案/泄漏/重复/图形） |
+| `scripts/clean_practice_import.py` | 按批次清理导入（备份、题图、孤立附件） |
+| `scripts/setup_chromium.sh` | 一次性下载 UI 测试用 Chromium 到 `data/.tools/`（不入 git） |
 | `data/eval/practice-ocr/raw/` | 三张样图（语文填空、混合运算、正方体展开图） |
 | `deeptutor/services/practice/storage.py` | 导入时持久化题图、重复导入刷新题图 URL |
 | `deeptutor/services/session/sqlite_store.py` | `question_images_json` 建表/迁移/序列化、学习侧栏按导入文件聚合并返回 `material_id` |

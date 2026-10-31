@@ -6217,5 +6217,13 @@
   "Blank restored": "Blank restored",
   "No answer": "No answer",
   "Import selected ({{count}})": "Import selected ({{count}})",
-  "{{count}} answers were solved by the model — check them before importing.": "{{count}} answers were solved by the model — check them before importing."
+  "{{count}} answers were solved by the model — check them before importing.": "{{count}} answers were solved by the model — check them before importing.",
+  "Import progress": "Import progress",
+  "Preparing images": "Preparing images",
+  "Reading the document": "Reading the document",
+  "Recognising questions": "Recognising questions",
+  "Checking answers": "Checking answers",
+  "Structuring questions": "Structuring questions",
+  "Saving figures": "Saving figures",
+  "{{count}} duplicate questions on the same figure were merged.": "{{count}} duplicate questions on the same figure were merged."
 }

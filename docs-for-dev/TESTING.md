@@ -70,6 +70,20 @@ frontend at `WEB_BASE_URL`; critical and multi-worker projects have separate
 fixture requirements in [`playwright.config.ts`](../web/playwright.config.ts).
 Do not run browser mutations against a learner's only copy of data.
 
+### 本地浏览器：只下载一次
+
+`npx playwright install chromium` 每建一个容器就重下一次（约 170 MB），这里访问
+Playwright CDN 也很慢。本仓库改为把一份 Chromium 放在**已挂载、且被 git 忽略**的
+`data/.tools/` 下，容器重建后仍然可用：
+
+```bash
+scripts/setup_chromium.sh        # 首次下载 + 校验；已存在则直接复用
+PLAYWRIGHT_CHROMIUM=<repo>/data/.tools/chromium/chrome-linux64/chrome node probe.mjs
+```
+
+Chromium 本身不进 git；系统库（libatk、libnss3 等）只在容器重建后需要补一次，
+脚本会在启动校验失败时以 root 自动执行 `playwright install-deps`。
+
 ## Modules, engines and optional integration
 
 Follow [Modules → Validation](MODULES.md#validation) for disposable wheel

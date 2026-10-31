@@ -17,17 +17,26 @@ import { PracticeInsights } from "./PracticeInsights";
 
 /** Shared collections and imports; both surfaces can start a manual practice session. */
 export function PracticePage({ mode = "practice" }: { mode?: "practice" | "library" }) {
+  const { t } = useTranslation();
   const search = useSearchParams();
   // A grouped sidebar node is a set of questions: start practicing it rather
   // than opening the hub's analytics.
   const group = search.get("group");
   if (mode === "practice" && group)
+    // The shell is not decoration: it owns the page's scroll container. Without
+    // it the card grows past the viewport inside AppShell's overflow-hidden
+    // frame and the buttons under it can never be reached.
     return (
-      <PracticeGroupSession
-        key={group}
-        materialId={group}
-        file={search.get("file") || ""}
-      />
+      <LearningShell
+        title={t("Practice")}
+        subtitle={t("Collect what you learn. Practice what matters. Remember it for longer.")}
+      >
+        <PracticeGroupSession
+          key={group}
+          materialId={group}
+          file={search.get("file") || ""}
+        />
+      </LearningShell>
     );
   // A material/file link is the sidebar's "open this imported file" target,
   // and `view` keeps the collection mounted when the filter is cleared.
