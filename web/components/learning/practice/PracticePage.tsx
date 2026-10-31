@@ -12,12 +12,33 @@ import { LearningErrorState, LearningShell } from "../LearningShell";
 import { ReviewHome } from "./ReviewHome";
 import { PracticeImport } from "./PracticeImport";
 import { PracticeSession } from "./PracticeSession";
+import { PracticeGroupSession } from "./PracticeGroupSession";
 import { PracticeInsights } from "./PracticeInsights";
 
 /** Shared collections and imports; both surfaces can start a manual practice session. */
 export function PracticePage({ mode = "practice" }: { mode?: "practice" | "library" }) {
   const search = useSearchParams();
-  if (mode === "practice" && !search.has("question")) return <ReviewHome />;
+  // A grouped sidebar node is a set of questions: start practicing it rather
+  // than opening the hub's analytics.
+  const group = search.get("group");
+  if (mode === "practice" && group)
+    return (
+      <PracticeGroupSession
+        key={group}
+        materialId={group}
+        file={search.get("file") || ""}
+      />
+    );
+  // A material/file link is the sidebar's "open this imported file" target,
+  // and `view` keeps the collection mounted when the filter is cleared.
+  if (
+    mode === "practice" &&
+    !search.has("question") &&
+    !search.has("material") &&
+    !search.has("file") &&
+    !search.has("view")
+  )
+    return <ReviewHome />;
   return <PracticeCollectionPage mode={mode} initialImport={search.get("create") === "1"} />;
 }
 
@@ -28,6 +49,15 @@ function PracticeCollectionPage({ mode, initialImport }: { mode: "practice" | "l
   const router = useRouter();
   const search = useSearchParams();
   const tab = search.get("view") === "mistakes" ? "mistakes" : "bank";
+  const material = search.get("material") || "";
+  const materialFile = search.get("file") || material;
+  function showAllQuestions() {
+    const next = new URLSearchParams(search.toString());
+    next.delete("material");
+    next.delete("file");
+    next.set("view", tab);
+    router.replace(pageRoute(next), { scroll: false });
+  }
   const [summary, setSummary] = useState<PracticeSummary | null>(null);
   const [error, setError] = useState("");
   const [importOpen, setImportOpen] = useState(initialImport);
@@ -235,9 +265,25 @@ function PracticeCollectionPage({ mode, initialImport }: { mode: "practice" | "l
               </button>
             ))}
           </div>
+          {(material || search.get("file")) && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-muted/40 px-4 py-2.5 text-sm">
+              <p className="min-w-0 truncate">
+                {t("Showing questions from {{file}}", { file: materialFile })}
+              </p>
+              <button
+                type="button"
+                onClick={showAllQuestions}
+                className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+              >
+                {t("Show all questions")}
+              </button>
+            </div>
+          )}
           <div id="practice-collection" role="tabpanel" aria-labelledby={`practice-tab-${tab}`}>
             <QuestionBankSection
-              key={`${tab}:${revision}`}
+              key={`${tab}:${revision}:${material}`}
+              initialMaterialId={material}
+              initialMaterialTitle={search.get("file") || ""}
               embedded
               onChanged={refresh}
               mistakesOnly={tab === "mistakes"}

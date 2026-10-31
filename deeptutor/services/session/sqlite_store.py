@@ -4214,8 +4214,10 @@ class SQLiteSessionStore:
         sidebar. Imported questions are grouped by their source file
         (``material_title``); questions created elsewhere collapse into one
         practice row. ``id`` is the newest question in each group, so a group
-        with one question still opens it directly. Uses the same recycle
-        predicate as the Question Bank; no schema change is required.
+        with one question still opens it directly. ``material_id`` comes from
+        that same newest row and lets a group open the Question Bank filtered
+        to its file. Uses the same recycle predicate as the Question Bank; no
+        schema change is required.
         """
 
         def read() -> list[dict[str, Any]]:
@@ -4227,7 +4229,11 @@ class SQLiteSessionStore:
                 return [
                     dict(row)
                     for row in conn.execute(
-                        "SELECT MAX(id) AS id, "
+                        "SELECT grouped.id AS id, "
+                        "CASE WHEN n.origin_type='external_import' THEN n.material_id ELSE '' END "
+                        "AS material_id, "
+                        "grouped.question, grouped.count, grouped.created_at, grouped.updated_at "
+                        "FROM (SELECT MAX(id) AS id, "
                         + group
                         + " AS question, COUNT(*) AS count, "
                         "MIN(created_at) AS created_at, MAX(updated_at) AS updated_at "
@@ -4235,7 +4241,9 @@ class SQLiteSessionStore:
                         + _NOT_RECYCLED_ENTRY_SQL.format(entries="notebook_entries")
                         + " GROUP BY "
                         + group
-                        + " ORDER BY updated_at DESC, id DESC"
+                        + ") AS grouped "
+                        "JOIN notebook_entries n ON n.id = grouped.id "
+                        "ORDER BY grouped.updated_at DESC, grouped.id DESC"
                     ).fetchall()
                 ]
 

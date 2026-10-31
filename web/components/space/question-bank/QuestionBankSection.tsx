@@ -43,16 +43,20 @@ function EmptyState({
 export default function QuestionBankSection({
   embedded = false,
   mistakesOnly = false,
+  initialMaterialId = "",
+  initialMaterialTitle = "",
   onPractice,
   onChanged,
 }: {
   embedded?: boolean;
   mistakesOnly?: boolean;
+  initialMaterialId?: string;
+  initialMaterialTitle?: string;
   onPractice?: (ids: number[]) => void;
   onChanged?: () => void;
 }) {
   const { t } = useTranslation();
-  const bank = useQuestionBank({ mistakesOnly });
+  const bank = useQuestionBank({ mistakesOnly, initialMaterialId, initialMaterialTitle });
   useEffect(() => {
     onChanged?.();
   }, [bank.stats, onChanged]);

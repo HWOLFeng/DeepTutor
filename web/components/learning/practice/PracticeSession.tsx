@@ -27,11 +27,13 @@ const RATINGS: { value: PracticeRating; label: string; description: string }[] =
 export function PracticeSession({
   ids,
   questions,
+  title,
   onClose,
   backLabel,
 }: {
   ids?: number[]
   questions?: PracticeRef[]
+  title?: string
   onClose: () => void
   backLabel?: string
 }) {
@@ -63,6 +65,9 @@ export function PracticeSession({
           {t('{{count}} remaining', { count: total - saved - skipped })}
         </p>
       </div>
+      {title && (
+        <h2 className="mb-3 truncate font-serif text-lg font-semibold">{title}</h2>
+      )}
       <progress
         max={total || 1}
         value={saved}

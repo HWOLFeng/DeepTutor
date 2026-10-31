@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  allLearningActivity,
   learningSurfaceStats,
   recentLearningActivity,
   learningTodos,
@@ -71,6 +72,47 @@ test('recent learning mixes four sources by epoch seconds and keeps six', () => 
   assert.equal(recent[2].progress, 0.5)
   assert.equal(recent[3].title, 'Memory')
   assert.equal(recent[4].title, 'Settings')
+})
+
+test('an imported practice group opens the bank filtered to its file', () => {
+  const withPractice: LearningSources = {
+    ...sources,
+    practice: [
+      {
+        id: 9,
+        question: '三年级语文修改病句.docx',
+        count: 4,
+        material_id: 'import:abc',
+        created_at: 5,
+        updated_at: 6,
+      },
+    ],
+  }
+  const row = allLearningActivity(withPractice).find(item => item.kind === 'practice')
+  assert.ok(row)
+  const link = new URL(row.href, 'http://workspace.local')
+  assert.equal(link.pathname, '/learning/practice')
+  assert.equal(link.searchParams.get('group'), 'import:abc')
+  assert.equal(link.searchParams.get('file'), '三年级语文修改病句.docx')
+})
+
+test('a single imported question still opens that question', () => {
+  const withPractice: LearningSources = {
+    ...sources,
+    practice: [
+      {
+        id: 12,
+        question: '错题.pdf',
+        count: 1,
+        material_id: 'import:def',
+        created_at: 5,
+        updated_at: 6,
+      },
+    ],
+  }
+  const row = allLearningActivity(withPractice).find(item => item.kind === 'practice')
+  assert.ok(row)
+  assert.equal(row.href, '/learning/practice?question=12&dt_workspace=')
 })
 
 test('todos contain due active topics and paused or compiling books only', () => {

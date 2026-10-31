@@ -140,7 +140,11 @@ const EMPTY_FILTERS: ReviewFilters = {
  *    filing a question does not make the page jump.
  */
 export function useQuestionBank(
-  options: { mistakesOnly?: boolean } = {},
+  options: {
+    mistakesOnly?: boolean;
+    initialMaterialId?: string;
+    initialMaterialTitle?: string;
+  } = {},
 ): QuestionBankController {
   const mistakesOnly = options.mistakesOnly ?? false;
   const [page, setPage] = useState(0);
@@ -150,7 +154,14 @@ export function useQuestionBank(
   const [stats, setStats] = useState<QuestionBankStats>(EMPTY_STATS);
   const [materials, setMaterials] = useState<QuestionBankMaterial[]>([]);
   const [scope, setScopeState] = useState<BankScope>(DEFAULT_SCOPE);
-  const [reviewFilters, setReviewFiltersState] = useState<ReviewFilters>(EMPTY_FILTERS);
+  // A link from the learning sidebar names one imported file; start on that
+  // material so the click lands on its questions instead of the whole bank.
+  const [reviewFilters, setReviewFiltersState] = useState<ReviewFilters>(
+    () =>
+      options.initialMaterialId
+        ? { ...EMPTY_FILTERS, materialId: options.initialMaterialId }
+        : EMPTY_FILTERS,
+  );
   const [sort, setSort] = useState<BankSort>("recent");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -229,6 +240,18 @@ export function useQuestionBank(
   useEffect(() => {
     void loadMeta();
   }, [loadMeta]);
+
+  // Older links and cached sidebar rows may name the file without its id.
+  // Resolve the title once the material list arrives so the filter still lands.
+  const unresolvedTitle = options.initialMaterialId ? "" : options.initialMaterialTitle || "";
+  useEffect(() => {
+    if (!unresolvedTitle) return;
+    const match = materials.find(item => item.material_title === unresolvedTitle);
+    if (!match) return;
+    setReviewFiltersState(current =>
+      current.materialId ? current : { ...current, materialId: match.material_id }
+    );
+  }, [materials, unresolvedTitle]);
 
   // Selection is scoped to what is on screen: switching filters must not
   // leave invisible rows staged for a bulk action.
