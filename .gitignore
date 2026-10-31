@@ -294,3 +294,11 @@ dmypy.json
 *.mp3
 *.wav
 *.ogg
+
+# Local deployment build output / captures (never commit)
+/deploy/web-app/
+/deploy/data-shots/
+/deploy/*.log
+
+# Team-specific production deployment (paths, runbooks, member scripts)
+/deploy/

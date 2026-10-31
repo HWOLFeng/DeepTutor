@@ -1,0 +1,15 @@
+DeepTutor
+https://github.com/HKUDS/DeepTutor
+Copyright the DeepTutor Authors.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository is an unofficial modified fork of DeepTutor. It is not
+endorsed by or affiliated with the original project or its maintainers.
+
+Changes made in this fork include: PDF/DOCX practice import with question
+figures, practice-template skill additions, practice-question navigation
+aggregation, and locally vendored Geist/Lora fonts (SIL Open Font License 1.1;
+see web/app/fonts/).
+
+Third-party components retain their own licenses and notices; see
+THIRD_PARTY_NOTICES.md and web/app/fonts/.
