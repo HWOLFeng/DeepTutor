@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`4f66ebc8`）|
 | 里程碑 | M0 |
 | 依赖 | F02 |
 | 回滚 | `git revert <sha>`。回滚后模型重新「看不见」任务与日历，不影响任何已存数据 |
@@ -10,6 +10,10 @@
 ## 背景
 
 F02 只是把事实渲染成一段字符串，还没人读它。本功能把这段字符串接进系统提示词，让模型在**不动用任何工具**的情况下也能回答「我今天有什么」。这是后面所有工具调用能被正确使用的前提。
+
+**前提修正（实测）**：看板任务其实**已经**在提示词里——executor 通过 `TaskBoardStore.context_text`
+把全量卡（最多 40 条）拼进 `source_manifest_text`。所以本块的价值是补三件既有块说不了的事：
+**今天**、**日历**、**窗口内到期切片 + 复习到期**，而不是重复任务列表。
 
 ## 你的任务
 
@@ -53,6 +57,9 @@ if not side_chat_context and module_enabled("calendar"):
 - 构建失败必须降级为 `""`（**不能让聚合异常打断整轮对话**）；
 - **侧边聊天（`side_chat_context`）不注入**——边栏答疑不该被主会话的计划干扰；
 - 非 chat 能力本轮不注入（`capability_name` 不在 `{"", "chat"}` 时跳过）；
+- 时区**当前来自宿主机**（`TZ` 环境变量 → `/etc/timezone` → `/etc/localtime` 符号链接 → `UTC`），
+  因为 turn payload 里还没有读者时区字段。宿主时区与读者时区不一致时「今天」会错日——这条是已知缺口，
+  修法（客户端随轮上报 `Intl.DateTimeFormat().resolvedOptions().timeZone`）单独记为一期；
 - 不提交。
 
 ## 验收
@@ -66,8 +73,12 @@ cd /root/DeepTutor
 
 ```bash
 .venv/bin/python -m pytest tests/agents/test_planner_prompt_block.py -q
+.venv/bin/python -m pytest tests/agents -q --ignore=tests/agents/visualize
 grep -n "planner_context" deeptutor/services/session/turns/executor.py
 ```
+
+实测结果：新增用例 `4 passed`；`tests/agents` 全量 `500 passed, 13 skipped`（未回归）；`grep` 命中
+executor 第 607 / 613 / 616 / 989 行，证明构建与传参都已接线。
 
 测试必须覆盖：
 

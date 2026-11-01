@@ -38,7 +38,7 @@
 | [F00](F00-acceptance-env.md) | 验收环境 | M0 | — | ☑ |
 | [F01](F01-draft-store.md) | 草稿存储 | M0 | F00 | ☑ |
 | [F02](F02-planner-context.md) | 规划上下文聚合 | M0 | F01 | ☑ |
-| [F03](F03-context-injection.md) | 上下文注入 | M0 | F02 | ☐ |
+| [F03](F03-context-injection.md) | 上下文注入 | M0 | F02 | ☑ |
 | [F04](F04-contracts.md) | 契约与 plan_draft 事件 | M0 | F00 | ☐ |
 | [F05](F05-tasks-tool.md) | tasks 工具 | M1 | F01 | ☐ |
 | [F06](F06-free-slots.md) | 空闲时段算法 | M1 | F00 | ☐ |
@@ -54,8 +54,11 @@
 | [F16](F16-skill.md) | learning-plan skill | M3 | F08,F11 | ☐ |
 | [F17](F17-entry-chips.md) | 首页入口 | M3 | F11 | ☐ |
 | [F18](F18-daily-cron.md) | 每日计划自动化 | M3 | F13,F16 | ☐ |
+| [F19](F19-turn-timezone.md) | 规划上下文的读者时区 | M3 | F03 | ☐ |
 
 **关键路径**：F00 → F01 → F08 → F09 → F11 → F13 → F14。
+
+F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主机），不阻塞关键路径，但要排在给人试用之前。
 
 里程碑：M0 地基（F00–F04）、M1 工具与服务端（F05–F10）、M2 前端闭环（F11–F15）、M3 沉淀与入口（F16–F18）。
 估算（单人，含测试）：M0 约 5 人日、M1 约 11 人日、M2 约 8 人日、M3 约 2.5 人日。
@@ -93,4 +96,5 @@
 | 2026-11-01 | 文档集建立（F00–F18 + README） | — | 文档完成 |
 | 2026-11-01 | F00 验收环境 | 无（不改仓库） | `pytest 9.2.0` / `pip 26.2.2` / `deps ok`；前端仍无 Node |
 | 2026-11-01 | F01 草稿存储 | `f3140a7b` | `pytest tests/services/planner -q` → `11 passed`；`compileall` 无输出 |
-| 2026-11-01 | F02 规划上下文聚合 | `049f638c` | `pytest tests/services/planner -q` → `23 passed`；典型日渲染 178 字符（上限 1200）|
+| 2026-11-01 | F02 规划上下文聚合 | `049f638c` + `0de840cf` | `pytest tests/services/planner -q` → `24 passed`；典型日渲染 188 字符（上限 1200）|
+| 2026-11-01 | F03 上下文注入 | `4f66ebc8` | 新增 `4 passed`；`pytest tests/agents` → `500 passed, 13 skipped` |
