@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from zoneinfo import ZoneInfo
 
 #: Hard ceiling for the rendered block. The prompt is shared with personas,
@@ -286,6 +286,26 @@ def _default_sources(
     )
 
 
+def turn_zone(config: Mapping[str, Any] | None) -> str | None:
+    """The reader's zone, when the turn named a usable one.
+
+    ``TurnRequest.config`` is free-form, so the browser can report the zone
+    without a wire-protocol change. An unusable value is ignored rather than
+    repaired: the host-zone fallback is already the best guess we have, and a
+    bad zone must never cost the block.
+    """
+    if not isinstance(config, Mapping):
+        return None
+    raw = str(config.get("timezone") or "").strip()
+    if not raw:
+        return None
+    try:
+        ZoneInfo(raw)
+    except Exception:  # noqa: BLE001 - unknown zone, fall back to the host
+        return None
+    return raw
+
+
 def load_planner_context(
     workspace_id: str,
     *,
@@ -346,8 +366,22 @@ def load_planner_context(
     return render_planner_context(snapshot)
 
 
+def build_turn_planner_context(
+    *,
+    config: Mapping[str, Any] | None,
+    workspace_id: str,
+    session_id: str | None = None,
+) -> str:
+    """The block a chat turn injects: the reader's zone wins over the host's."""
+    return load_planner_context(
+        workspace_id, session_id=session_id, tzid=turn_zone(config)
+    )
+
+
 __all__ = [
     "MAX_CONTEXT_CHARS",
+    "build_turn_planner_context",
+    "turn_zone",
     "PlannerSnapshot",
     "local_zone_name",
     "PlannerSources",

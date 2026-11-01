@@ -2052,6 +2052,10 @@ export default function ChatWorkspace() {
       if (!state.sessionId && draftTaskIds.length) {
         config = { ...(config ?? {}), linked_task_ids: draftTaskIds };
       }
+      // The reader's zone, so the planner block's "today" is their today and
+      // not the server host's. Free-form config: no protocol change needed.
+      const readerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (readerZone) config = { ...(config ?? {}), timezone: readerZone };
       const memoryPayload = [...memoryReferencesPayload];
       const messageContent =
         content ||

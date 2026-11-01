@@ -610,11 +610,18 @@ class TurnExecutor:
 
                 if module_enabled("calendar"):
                     try:
-                        from deeptutor.services.planner.context import load_planner_context
+                        from deeptutor.services.planner.context import (
+                            build_turn_planner_context,
+                        )
                         from deeptutor.services.workspace.context import current_workspace_id
 
-                        planner_context = load_planner_context(
-                            current_workspace_id(), session_id=session_id
+                        # The browser's zone beats the host's: a block that says
+                        # "today" in the wrong zone is worse than no block. An
+                        # unusable value falls back to the host inside the call.
+                        planner_context = build_turn_planner_context(
+                            config=payload.get("config"),
+                            workspace_id=current_workspace_id(),
+                            session_id=session_id,
                         )
                     except (OSError, ValueError):
                         logger.exception("Unable to build the planner context")
