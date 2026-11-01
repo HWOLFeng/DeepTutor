@@ -274,6 +274,7 @@ def compose_enabled_tools(
         "github",
         "ask_user",
         "cron",
+        "tasks",
     ):
         if _builtin_allowed(always_on):
             composed.append(always_on)
