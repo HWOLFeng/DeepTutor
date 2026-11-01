@@ -54,7 +54,7 @@
 | [F15](F15-reject-reasons.md) | 拒绝原因与会话去重 | M2 | F02,F13 | ☑ |
 | [F16](F16-skill.md) | learning-plan skill | M3 | F08,F11 | ☑ |
 | [F17](F17-entry-chips.md) | 首页入口 | M3 | F11 | ☐ |
-| [F18](F18-daily-cron.md) | 每日计划自动化 | M3 | F13,F16 | ☐ |
+| [F18](F18-daily-cron.md) | 每日计划自动化 | M3 | F13,F16 | ☑ |
 | [F19](F19-turn-timezone.md) | 规划上下文的读者时区 | M3 | F03 | ☑ |
 
 **关键路径**：F00 → F01 → F08 → F09 → F11 → F13 → F14。
@@ -113,5 +113,6 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F16 learning-plan skill | `f10ad8cb` | 新增 `11 passed`；`tests/services/skill` → `66 passed` |
 | 2026-11-01 | F17 首页入口文案 | `010e503b` | 新增 `5 passed`；6 语言 key 集合不变；`i18n:parity` OK |
 | 2026-11-01 | F15 拒绝原因与会话去重 | `dff26a7a` | 新增后端 `14` + 前端 `6` 用例；契约重导出双端 `check` 通过 |
+| 2026-11-01 | F18 每日计划自动化 | `a997de69` | 新增 `9 passed`；`tests/services/skill` → `74 passed`；端到端 7 行未执行（需真实实例） |
 | 2026-11-01 | F04 裁撤 | — | 草稿 id 已随 `tool_result.metadata` 到达前端，新增事件类型会造成两个真相来源；F13 改为读 metadata |
 | 2026-11-01 | 契约工具链打通 | `ce1a9139` | 用 `/tmp` 的临时 Node 22.11 完成 `openapi.json` + `generated/api.ts` 重生成，两端 `--check` 通过 |
