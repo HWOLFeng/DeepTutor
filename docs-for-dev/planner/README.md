@@ -53,7 +53,7 @@
 | [F14](F14-undo-ui.md) | 撤回入口 | M2 | F10,F13 | ☑ |
 | [F15](F15-reject-reasons.md) | 拒绝原因与会话去重 | M2 | F02,F13 | ☑ |
 | [F16](F16-skill.md) | learning-plan skill | M3 | F08,F11 | ☑ |
-| [F17](F17-entry-chips.md) | 首页入口 | M3 | F11 | ☐ |
+| [F17](F17-entry-chips.md) | 首页入口 | M3 | F11 | ☑ |
 | [F18](F18-daily-cron.md) | 每日计划自动化 | M3 | F13,F16 | ☑ |
 | [F19](F19-turn-timezone.md) | 规划上下文的读者时区 | M3 | F03 | ☑ |
 
@@ -76,7 +76,9 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 
 因此：
 - 后端功能 → 用 `.venv/bin/python -m pytest ...` 验收，可执行。
-- 前端功能（F04 的后半、F11–F15、F17）→ 在装好 Node 22 + `web/` 内 `npm ci` 之前，验收降级为：文件静态检查 + 明确标注「未执行」。**不得把未执行写成通过。**
+- 前端功能（F11–F15、F17）→ **已在会话内装好**（Node 22.20 + `npm ci --legacy-peer-deps`，见 F11「环境实录」），
+  因此这些功能的 vitest / typecheck 验收是真跑过的。若换到没有 Node 的机器，验收降级为静态检查并如实标「未执行」——
+  **不得把未执行写成通过**。
 
 ---
 
@@ -116,3 +118,80 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F18 每日计划自动化 | `a997de69` | 新增 `9 passed`；`tests/services/skill` → `74 passed`；端到端 7 行未执行（需真实实例） |
 | 2026-11-01 | F04 裁撤 | — | 草稿 id 已随 `tool_result.metadata` 到达前端，新增事件类型会造成两个真相来源；F13 改为读 metadata |
 | 2026-11-01 | 契约工具链打通 | `ce1a9139` | 用 `/tmp` 的临时 Node 22.11 完成 `openapi.json` + `generated/api.ts` 重生成，两端 `--check` 通过 |
+
+---
+
+# 收尾记录（2026-11-01）
+
+规划已整体交付：**19 份子功能文档，18 项验收、1 项裁撤**。下文是留给后来者的账本——
+哪些是照字面做的、哪些是判断后偏离的、哪些是前提被推翻的，以及哪些测试失败是**本来就红的**。
+
+## 交付一览
+
+| 功能 | commit | 功能 | commit |
+| --- | --- | --- | --- |
+| F00 验收环境 | 无（不改仓库） | F10 整批撤回 | `e77f73f8` |
+| F01 草稿存储 | `f3140a7b` | F11 采纳卡片 | `88dcac1a` |
+| F02 上下文聚合 | `049f638c` + `0de840cf` | F12 卡内改期 | `2c42402b` |
+| F03 上下文注入 | `4f66ebc8` | F13 聊天渲染接入 | `f0ae1884` |
+| F04 契约与事件 | **✗ 裁撤** | F14 撤回入口 | `f27f3491` |
+| F05 tasks 工具 | `ef3eaa86` | F15 拒绝原因与去重 | `dff26a7a` |
+| F06 空闲时段算法 | `19bfde07` | F16 learning-plan skill | `f10ad8cb` |
+| F07 calendar 工具 | `0f9d4985` | F17 首页入口文案 | `010e503b` |
+| F08 plan_week | `572d76c3` | F18 每日计划自动化 | `a997de69` |
+| F09 采纳 API | `ce1a9139` | F19 读者时区 | `06e8c05b` |
+
+## 三类决策
+
+**照字面实现**（10 项）：F01、F03、F05、F07、F09、F11、F13、F17、F18、F19 的主体。
+
+**判断后主动偏离**（每一条都在对应文档里写了理由）：
+
+| 文档 | 偏离 | 为什么 |
+| --- | --- | --- |
+| F02 | 任务行只取「窗口内到期」切片 | 实测发现看板全量任务**早已**通过 `Task context` 进提示词，再列一遍是重复 |
+| F06 | 返回整窗而不是切成粒度小块 | 规划器要在窗口里放任务；预先切开逼调用方重新拼 |
+| F08 | 返回 `PlanItemInput`；工具多 `items` 参数；上限只约束时间块 | 生成器还没有 draft id；没有候选就无从规划；上限是「日历容量」不是「任务数」 |
+| F10 | 用内容比对代替时间戳判断「改过没有」 | 卡片 `+00:00` 与草稿 `Z` 两种格式，字符串比较必错 |
+| F10 | 给任务板补 `delete()` | 需要真删除，归档会在账户数据里永久留废行 |
+| F13 | 新增 `PlanDraftPanel`；会话级「只激活最新」简化为按状态 | 60 行异步状态不该塞进 2500 行的消息列表；没有按会话列草稿的接口 |
+| F15 | 原因用稳定 id；`PlanItem` 增字段；查询放 store | 不把中文当数据存；不返回就看不见；不把 SQL 写进工具 |
+| F16/F18 | 各加一个测试文件 | 否则「skill 写对了」没有任何可执行判据 |
+
+**前提被推翻**：**F04 整个裁撤**。计划要给草稿卡片新增 `plan_draft` 流事件，落地到 F08 时发现
+草稿 id 已经随 `tool_result.metadata` 到达前端（与 `mastery_handoff` 同一套），新增事件会让同一事实
+有两个真相来源。文档保留原文与裁撤理由，F13 改为读 metadata。
+
+## 本来就红的测试（用 `git stash -u` 基线对比确认，不是本次欠的债）
+
+| 套件 | 结果 | 原因 |
+| --- | --- | --- |
+| `tests/services/session` | 8 failed / 475 passed | `WorkspaceError: The selected workspace folder does not exist.` |
+| `tests/api` | 62 failed / 1025 passed（基线 63/1009） | 多用户鉴权 `401`、缺可选模块依赖 |
+| `tests/tools` | 4 failed / 342 passed | 缺 `arxiv`、`pptx_workspace_flow` |
+| `npm run i18n:check` | exit 1 | de/pl 各 39 条既有硬编码文案（`features/settings/**`） |
+
+`npm run typecheck`、`npm run contracts:check`、`npm run i18n:parity`、`pytest tests/services/planner`、
+`pytest tests/services/skill`、`pytest tests/services/cron` 均**全绿**。
+
+## 怎么跑一遍
+
+```bash
+# 后端（worktree 里已有 .venv）
+.venv/bin/python -m pytest tests/services/planner tests/services/skill tests/api/test_planner_router.py -q
+
+# 前端（需要 Node 22.12+，见 F11 的「环境实录」）
+cd web && npx vitest run tests/plan-draft-*.spec.tsx tests/plan-starter-copy.spec.ts
+npm run typecheck && npm run contracts:check
+```
+
+端到端（需要真实实例，见 [F18](F18-daily-cron.md) 的 7 行清单）尚未跑过——这是本规划唯一
+**没有人点过一遍**的部分。
+
+## 如果要继续
+
+1. **个人化规划风格**：把 F15 收集的拒绝原因从「短期记忆」升级成 `my-planning-style` skill，
+   让系统按用户自己的节奏排（这是 skill 机制在本产品里最不可替代的地方）；
+2. **按会话列草稿的接口**（`GET /api/planner/sessions/{id}/drafts`）：F13 为此做了简化，
+   有了它就能实现字面意义上的「只激活最新草稿」；
+3. **周视图的计划入口**：目前只能从聊天发起，日历侧只有 automation 层能看见排程。
