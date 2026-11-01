@@ -2,12 +2,12 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`88dcac1a`）|
 | 里程碑 | M2 |
 | 依赖 | F04、F09 |
 | 回滚 | `git revert <sha>`。回滚后规划仍可生成与写入，但只能通过 API 操作，聊天里没有可点的卡片 |
 
-**环境前置**：需要 Node 22 + `web/` 内 `npm ci`。本机没有 Node，未装好前本功能只能做静态检查，**不得标 ☑**。
+**环境前置**：Node 22 + `web/` 内 `npm ci`。**本轮已装好并真实执行**（见文末「环境实录」）。
 
 ## 背景
 
@@ -90,8 +90,27 @@ npm run i18n:check
 6. 点击确认 → 只发出一次 `POST .../apply`，请求体 `decisions` 与勾选一致（连点两次也只一次）；
 7. 提交失败（打桩 500）→ 勾选状态保留、错误条出现。
 
+实测结果：
+
+```bash
+cd web && npm run test:unit -- tests/plan-draft-card.spec.tsx   # 11 passed
+npm run typecheck                                               # exit 0
+npm run i18n:check                                              # parity OK；audit 的失败为既有
+```
+
+**环境实录（换机器会再次遇到，记下来）**
+
+1. **Node 22.11 跑不了 vitest**：`jsdom` 在 22.11 下 `require()` 到 ESM 的 `@exodus/bytes`，
+   报 `ERR_REQUIRE_ESM`，整个 worker 起不来。换 **Node 22.20** 后一次通过
+   （`require(esm)` 在 22.12+ 默认开启）。
+2. **`npm ci` 会漏装 rolldown 的原生绑定**（npm 可选依赖的老问题），vitest 报
+   `Cannot find native binding`。用 `npm install` 补装会把整棵树重解一次（实测：239 个包被改动，
+   随后 `jsdom` 直接坏掉）。正确做法是**只把 tarball 解到 `node_modules/@rolldown/binding-linux-x64-gnu`**，
+   不动其余依赖。
+3. `web/node_modules` 约 1.3GB、`npm ci` 约 25–60 秒，不入版本库。
+
 ## 交付
 
-- 产出物：组件 + 样式 + API 客户端 + 测试 + 6 语言文案
+- 产出物：`web/features/planner/components/PlanDraftCard.tsx` + `plan-draft.css` + `web/lib/planner-api.ts` + 测试 + 6 语言文案（各 20 个 key）
 - 证据：三条命令的输出（若本机无 Node，写明「未执行」及原因）
 - 通过后：本文件状态改 `☑ 已验收` + commit sha，然后提交

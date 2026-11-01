@@ -47,7 +47,7 @@
 | [F08](F08-plan-week.md) | plan_week 草稿生成 | M1 | F01,F05,F07 | ☑ |
 | [F09](F09-apply.md) | 采纳 API 与落库 | M1 | F08 | ☑ |
 | [F10](F10-undo.md) | 整批撤回 | M1 | F09 | ☑ |
-| [F11](F11-draft-card.md) | 采纳卡片 | M2 | F04,F09 | ☐ |
+| [F11](F11-draft-card.md) | 采纳卡片 | M2 | F09 | ☑ |
 | [F12](F12-inline-edit.md) | 卡内改期 | M2 | F11 | ☐ |
 | [F13](F13-chat-render.md) | 聊天渲染接入 | M2 | F11 | ☐ |
 | [F14](F14-undo-ui.md) | 撤回入口 | M2 | F10,F13 | ☐ |
@@ -72,7 +72,7 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | --- | --- | --- |
 | 系统 python3 无项目依赖 | `python3 -c "import fastapi"` → `ModuleNotFoundError` | 后端测试必须用 F00 建的 `.venv` |
 | 系统无 pip / ensurepip | `pip3: command not found`、`No module named ensurepip` | 已通过 get-pip 引导进 `.venv`（F00） |
-| 系统无 Node / npm | `command -v node` 无输出 | 前端验收（typecheck / vitest）仍不可跑；**契约 TS 生成**已用 `/tmp` 下的临时 Node 22.11 完成（不随仓库保存，换机器需重新准备）|
+| Node 需 22.12+ | Node 22.11 下 `jsdom` 报 `ERR_REQUIRE_ESM`（`require(esm)` 未默认开启）| 用 **22.20**；`web/node_modules` 用 `npm ci --legacy-peer-deps` 装（约 1.3GB），并手工补 `@rolldown/binding-linux-x64-gnu` 的 tarball——`npm install` 补装会重解整棵树，实测会把 `jsdom` 弄坏 |
 
 因此：
 - 后端功能 → 用 `.venv/bin/python -m pytest ...` 验收，可执行。
@@ -106,5 +106,6 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F08 plan_week | `572d76c3` | 新增 `36 passed`；零写入不变量已验证；`tests/agents` → `511 passed` |
 | 2026-11-01 | F09 采纳 API | `ce1a9139` | 新增 `15 passed`；契约双端 `--check` 通过；`tests/api` 失败数未增加（62 vs 基线 63）|
 | 2026-11-01 | F10 整批撤回 | `e77f73f8` | 新增 `10 passed`；`tests/multi_user` 任务板/日历 `37 passed`；契约 `check` 通过 |
+| 2026-11-01 | F11 采纳卡片 | `88dcac1a` | vitest `11 passed`；`typecheck` exit 0；`i18n:parity` OK（audit 失败经基线确认为既有） |
 | 2026-11-01 | F04 裁撤 | — | 草稿 id 已随 `tool_result.metadata` 到达前端，新增事件类型会造成两个真相来源；F13 改为读 metadata |
 | 2026-11-01 | 契约工具链打通 | `ce1a9139` | 用 `/tmp` 的临时 Node 22.11 完成 `openapi.json` + `generated/api.ts` 重生成，两端 `--check` 通过 |
