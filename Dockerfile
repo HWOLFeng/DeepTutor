@@ -133,7 +133,10 @@ ARG APT_MIRROR
 
 # Labels
 LABEL maintainer="DeepTutor Team" \
-      description="DeepTutor: AI-Powered Personalized Learning Assistant"
+      description="DeepTutor: AI-Powered Personalized Learning Assistant" \
+      org.opencontainers.image.source="https://github.com/HWOLFeng/DeepTutor" \
+      org.opencontainers.image.title="DeepTutor" \
+      org.opencontainers.image.licenses="Apache-2.0"
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -334,9 +337,14 @@ echo "[Backend]  🚀 Starting FastAPI backend on ${BACKEND_HOST}:${BACKEND_PORT
 # uvicorn's default, so both ends raced to close the same socket and the loser's
 # request died with ECONNRESET (a 500 in the UI). Stay well above the proxy's
 # reaper so the client is the only side retiring idle connections.
+# --timeout-graceful-shutdown: a browser tab holds an open WebSocket, and
+# uvicorn's graceful shutdown waits for every connection to drain. With the
+# default (no timeout) a `docker stop` or a dev autoload never finishes: the
+# server sits in "Waiting for connections to close" until it is SIGKILLed.
+# The bound lets uvicorn cancel the lingering socket tasks and finish the swap.
 WS_MAX_SIZE=$(python -c "from deeptutor.services.config import get_ws_max_size; print(get_ws_max_size())" 2>/dev/null || echo 16777216)
 KEEP_ALIVE=$(python -c "from deeptutor.services.config import HTTP_KEEP_ALIVE_TIMEOUT; print(HTTP_KEEP_ALIVE_TIMEOUT)" 2>/dev/null || echo 300)
-exec python -m uvicorn deeptutor.api.main:app --host ${BACKEND_HOST} --port ${BACKEND_PORT} --workers ${BACKEND_WORKERS} --no-access-log --no-proxy-headers --ws-max-size ${WS_MAX_SIZE} --timeout-keep-alive ${KEEP_ALIVE}
+exec python -m uvicorn deeptutor.api.main:app --host ${BACKEND_HOST} --port ${BACKEND_PORT} --workers ${BACKEND_WORKERS} --no-access-log --no-proxy-headers --ws-max-size ${WS_MAX_SIZE} --timeout-keep-alive ${KEEP_ALIVE} --timeout-graceful-shutdown ${GRACEFUL_SHUTDOWN_TIMEOUT:-5}
 EOF
 
 RUN sed -i 's/\r$//' /app/start-backend.sh && chmod +x /app/start-backend.sh
@@ -619,7 +627,7 @@ RUN pip install --no-cache-dir \
 # the production stage is reused as-is.
 RUN cat > /etc/supervisor/conf.d/programs.conf <<'EOF'
 [program:backend]
-command=/bin/bash -c "exec python -m uvicorn deeptutor.api.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8001} --reload --reload-dir /app/deeptutor --reload-dir /app/deeptutor_cli --no-access-log --no-proxy-headers --ws-max-size $(python -c 'from deeptutor.services.config import get_ws_max_size; print(get_ws_max_size())' 2>/dev/null || echo 16777216) --timeout-keep-alive $(python -c 'from deeptutor.services.config import HTTP_KEEP_ALIVE_TIMEOUT; print(HTTP_KEEP_ALIVE_TIMEOUT)' 2>/dev/null || echo 300)"
+command=/bin/bash -c "exec python -m uvicorn deeptutor.api.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8001} --reload --reload-dir /app/deeptutor --reload-dir /app/deeptutor_cli --no-access-log --no-proxy-headers --ws-max-size $(python -c 'from deeptutor.services.config import get_ws_max_size; print(get_ws_max_size())' 2>/dev/null || echo 16777216) --timeout-keep-alive $(python -c 'from deeptutor.services.config import HTTP_KEEP_ALIVE_TIMEOUT; print(HTTP_KEEP_ALIVE_TIMEOUT)' 2>/dev/null || echo 300) --timeout-graceful-shutdown 5"
 directory=/app
 user=deeptutor
 autostart=true

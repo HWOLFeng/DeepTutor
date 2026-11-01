@@ -67,6 +67,15 @@ reach the intended API through the frontend proxy. A listening frontend alone
 does not establish provider, module or turn readiness. Use
 `deeptutor doctor --format json` and the original user operation to verify.
 
+Reload and open WebSockets: uvicorn waits for every live connection before it
+finishes shutting a worker down, and a browser tab keeps its `/ws` socket open.
+`deeptutor serve --reload` (via `deeptutor/api/run_server.py`) and the container
+commands pass `--timeout-graceful-shutdown`, so the old worker is bounded and
+the new one starts. If you start uvicorn by hand, pass the same flag
+(`--timeout-graceful-shutdown 5`) — without it a reload sits in
+"Waiting for connections to close. (CTRL+C to force quit)" until it is killed,
+and the code you just saved never loads.
+
 ## Make a change at its owner
 
 1. Reproduce the behavior with a minimal synthetic fixture. Identify whether
