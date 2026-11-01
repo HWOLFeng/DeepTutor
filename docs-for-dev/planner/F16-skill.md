@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`f10ad8cb`）|
 | 里程碑 | M3 |
 | 依赖 | F08、F11 |
 | 回滚 | `git revert <sha>`。回滚后模型失去流程知识，工具仍在（能力退化但不失效） |
@@ -56,27 +56,25 @@
 ```bash
 cd /root/DeepTutor
 .venv/bin/python -m pytest tests/services/skill -q
-.venv/bin/python - <<'PY'
-from deeptutor.services.skill.service import SkillService
-from pathlib import Path
-svc = SkillService(Path("/tmp/skill-check"))
-info = svc.get_detail("learning-plan")
-print(info.name, "|", len(info.description), "chars")
-assert "plan_week" in svc.read_skill_file("learning-plan")
-assert "apply" in svc.read_skill_file("learning-plan")  # 以"禁止调用"形式出现
-print("skill ok")
-PY
 ```
 
-测试必须覆盖 / 达标：
+实测结果：`tests/services/skill` → **66 passed, 2 skipped**（含为本技能新增的 11 条）。
+正文 **91 行**、description **319 字符**、`always` 未开启、`tags: [planner]`、两个 reference 均可读。
 
-1. `tests/services/skill` 全绿（frontmatter 解析、名称规范、description 非空）；
-2. 正文含 `plan_week`、含「不要调用 apply」的明确禁令、含三个场景；
-3. 正文 ≤ 150 行、全文不含代码常量数值（用 `grep -E "180|15 ?min|30 ?min"` 自查，命中即需改写为引用代码）；
-4. 名称全小写短横线、≤64 字符。
+新增用例守住的规则（`tests/services/skill/test_learning_plan_skill.py`）：
+
+1. 以 **builtin 只读** 身份注册，`always` 未开启，tag 正确；
+2. description 同时含 `plan` / `what should I do today` / `排计划` / `overdue`——**这就是触发器**；
+3. 正文含 `plan_week`，并含「Never call an apply/confirm endpoint」与「the learner's act」两句禁令；
+4. 四类意图齐备（Generate / Converge / Repair / Query only）；
+5. **正文与两个 reference 都不得出现 `NN min` 形式的时长**——数值归 `planner.py`，避免两套事实；
+6. 正文 ≤ 150 行；
+7. 两个 reference 可读且包含承诺的内容（daily ceiling / 三个场景）；
+8. 目录里只有 `SKILL.md` 与 `references/`（无 README / changelog）；
+9. 写入 builtin 层被拒绝。
 
 ## 交付
 
-- 产出物：3 个 skill 文件
+- 产出物：`deeptutor/skills/builtin/learning-plan/` 的 3 个文件 + 专属测试 11 条
 - 证据：pytest 输出 + 脚本输出（`skill ok`）
 - 通过后：本文件状态改 `☑ 已验收` + commit sha，然后提交
