@@ -44,7 +44,7 @@
 | [F06](F06-free-slots.md) | 空闲时段算法 | M1 | F00 | ☑ |
 | [F07](F07-calendar-tool.md) | calendar 工具 | M1 | F06 | ☑ |
 | [F08](F08-plan-week.md) | plan_week 草稿生成 | M1 | F01,F05,F07 | ☑ |
-| [F09](F09-apply.md) | 采纳 API 与落库 | M1 | F08 | ☐ |
+| [F09](F09-apply.md) | 采纳 API 与落库 | M1 | F08 | ☑ |
 | [F10](F10-undo.md) | 整批撤回 | M1 | F09 | ☐ |
 | [F11](F11-draft-card.md) | 采纳卡片 | M2 | F04,F09 | ☐ |
 | [F12](F12-inline-edit.md) | 卡内改期 | M2 | F11 | ☐ |
@@ -71,7 +71,7 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | --- | --- | --- |
 | 系统 python3 无项目依赖 | `python3 -c "import fastapi"` → `ModuleNotFoundError` | 后端测试必须用 F00 建的 `.venv` |
 | 系统无 pip / ensurepip | `pip3: command not found`、`No module named ensurepip` | 已通过 get-pip 引导进 `.venv`（F00） |
-| 系统无 Node / npm | `command -v node` 无输出 | **前端验收（typecheck / vitest / contracts）暂不可跑** |
+| 系统无 Node / npm | `command -v node` 无输出 | 前端验收（typecheck / vitest）仍不可跑；**契约 TS 生成**已用 `/tmp` 下的临时 Node 22.11 完成（不随仓库保存，换机器需重新准备）|
 
 因此：
 - 后端功能 → 用 `.venv/bin/python -m pytest ...` 验收，可执行。
@@ -103,3 +103,4 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F06 空闲时段算法 | `19bfde07` | 新增 `17 passed`；`tests/services/planner` → `41 passed` |
 | 2026-11-01 | F07 calendar 工具 | `0f9d4985` | 新增 `21 passed`（含 links）；`tests/agents` → `511 passed`；`tests/modules` → `86 passed` |
 | 2026-11-01 | F08 plan_week | `572d76c3` | 新增 `36 passed`；零写入不变量已验证；`tests/agents` → `511 passed` |
+| 2026-11-01 | F09 采纳 API | `ce1a9139` | 新增 `15 passed`；契约双端 `--check` 通过；`tests/api` 失败数未增加（62 vs 基线 63）|

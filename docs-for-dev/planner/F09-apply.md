@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`ce1a9139`）|
 | 里程碑 | M1 |
 | 依赖 | F08 |
 | 回滚 | `git revert <sha>` + 重新生成路由索引。回滚后草稿可见但不可写入，卡片（F11）会退化为只读 |
@@ -78,11 +78,29 @@ cd /root/DeepTutor
 4. **孤立时间块**：采纳 block 但拒绝其父 task → `422`，且零写入；
 5. 双击：连续两次 `apply` → 第二次 200 且 `cards`/`events` 行数不变；
 6. 过期草稿 → `409`；
-7. 跨 workspace 的 `task_id` 事件 → `403`；
-8. `GET /drafts/{id}` 能读到刚写入的 `apply_result`（供 F14 显示撤销入口）。
+7. 跨 workspace：**这条风险已被设计消除**——草稿条目只引用草稿内的 `item_id`，「外来 task_id 的事件」在
+   结构上不存在。等价可测的情况是「另一个 workspace 的草稿」，读写一律 `404`（与不存在同形）；
+8. `GET /drafts/{id}` 能读到刚写入的 `apply_result`（供 F14 显示撤销入口）；
+9. `PATCH` 在草稿关闭后拒绝（`400`）、未知条目 `404`、未知草稿 `404`；
+10. 采纳前改的标题**就是**写进看板的标题（改期/改名不被 apply 丢弃）；
+11. `kind="review"` 的引擎复习行也落成一张任务卡（否则「12 个复习待做」只活在草稿里）。
+
+实测结果：`tests/api/test_planner_router.py` → `15 passed`；连契约与路由索引四文件
+`pytest tests/api/test_planner_router.py tests/api/test_frontend_contract_export.py tests/api/test_router_loader.py tests/api/test_canonical_route_surface.py`
+→ `26 passed`。
+
+**契约已同步**：`python -m deeptutor.api.contracts.export` 重写 `web/contracts/schema/openapi.json`，
+`npm run contracts:generate` 重写 `web/contracts/generated/api.ts`；两边 `--check` 均通过。
+为此在本会话里临时准备了 Node 22.11（装在 `/tmp`，不随仓库保存）。
+
+`tests/api` 全量：改动后 `1025 passed / 62 failed`；`git stash -u` 基线 `1009 passed / 63 failed`
+——失败数**没有增加**，62 个失败均为环境问题（多用户鉴权 `401`、缺可选模块依赖），与本次改动无关。
+
+**并发备注**：双击由「先读状态再写」拦住（顺序请求安全）。真正的并发双击需要 store 提供「抢占」
+语义，当前未做，已记在此处而不是假装解决。
 
 ## 交付
 
-- 产出物：路由 + 清单 + 重建后的索引 + 测试
+- 产出物：`deeptutor/api/routers/planner.py`（`GET` / `PATCH` / `POST apply`）+ 清单路由 + 重建后的 `router_index.json` + 重导出的两份契约 + 测试
 - 证据：两份 pytest 输出（第二份证明索引未漂移）
 - 通过后：本文件状态改 `☑ 已验收` + commit sha，然后提交
