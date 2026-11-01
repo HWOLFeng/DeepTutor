@@ -111,5 +111,6 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F14 撤回入口 | `f27f3491` | 新增 `7 passed`；规划前端三套件 `28 passed`；`typecheck` exit 0 |
 | 2026-11-01 | F12 卡内改期 | `2c42402b` | 新增 `8 passed`；规划前端四套件 `36 passed`；`typecheck` exit 0 |
 | 2026-11-01 | F16 learning-plan skill | `f10ad8cb` | 新增 `11 passed`；`tests/services/skill` → `66 passed` |
+| 2026-11-01 | F17 首页入口文案 | `010e503b` | 新增 `5 passed`；6 语言 key 集合不变；`i18n:parity` OK |
 | 2026-11-01 | F04 裁撤 | — | 草稿 id 已随 `tool_result.metadata` 到达前端，新增事件类型会造成两个真相来源；F13 改为读 metadata |
 | 2026-11-01 | 契约工具链打通 | `ce1a9139` | 用 `/tmp` 的临时 Node 22.11 完成 `openapi.json` + `generated/api.ts` 重生成，两端 `--check` 通过 |

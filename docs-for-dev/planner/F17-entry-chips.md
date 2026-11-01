@@ -2,12 +2,12 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`010e503b`）|
 | 里程碑 | M3 |
 | 依赖 | F11 |
 | 回滚 | `git revert <sha>`。文案回滚，无数据影响 |
 
-**环境前置**：Node 22 + `npm ci`（`i18n:check` 与前端测试都需要）。
+**环境前置**：Node 22.12+ 与 `web/` 内 `npm ci --legacy-peer-deps`（F11 已备好）。
 
 ## 背景
 
@@ -67,6 +67,27 @@ npm run test:unit -- tests/plan-starter-copy.test.ts
 1. 6 个语言的 `starters.plan.1.prompt` 与 `.3.prompt` 均非空且长度在合理区间（例如 60–400 字符），并且都含「草稿」语义的标记词（zh 用 `/草稿/`，en 用 `/draft/i`，其余语言各给自己的标记）；
 2. 4 条 `starters.plan.*` 的 key 集合与改动前完全一致（用快照或显式列表比对）；
 3. 每条 prompt 都提到「任务」与「日历」语义（zh: `/任务/`、`/日历/`；en: `/task/i`、`/calendar/i`）。
+
+## 实现记录
+
+- 只改了 `starters.plan.{1..4}.prompt` 的值，**key 集合逐字未动**（用户自定义 starters 以 key 为索引）。
+- 测试文件从计划里的 `tests/plan-starter-copy.test.ts` 改为 `tests/plan-starter-copy.spec.ts`：
+  本项目的 `*.test.ts` 走 `npm run test:node`（node:test + 相对路径），而这份测试需要 vitest 的
+  `@/` 别名与 JSON 导入；命名跟随运行器，不是随意改名。
+- zh 文案需要能通过 `/草稿/`、`/任务/`、`/日历/` 三个标记；`2`、`4` 两条只追加一句「如果要落到任务和
+  日历，告诉我，我会先给草稿」，不承诺它们产不出条目。
+
+实测结果：
+
+```bash
+cd web
+npx vitest run tests/plan-starter-copy.spec.ts   # 5 passed
+npm run i18n:parity                              # OK
+npm run typecheck                                # exit 0
+```
+
+5 条用例分别守：key 集合不变、两条写入型文案含 draft/task/calendar、两条只读型也给出同一路径、
+仍要求「不确定先问」、**不得出现「自动帮你创建/写入」这类承诺**。
 
 ## 交付
 
