@@ -115,9 +115,10 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F16 learning-plan skill | `f10ad8cb` | 新增 `11 passed`；`tests/services/skill` → `66 passed` |
 | 2026-11-01 | F17 首页入口文案 | `010e503b` | 新增 `5 passed`；6 语言 key 集合不变；`i18n:parity` OK |
 | 2026-11-01 | F15 拒绝原因与会话去重 | `dff26a7a` | 新增后端 `14` + 前端 `6` 用例；契约重导出双端 `check` 通过 |
-| 2026-11-01 | F18 每日计划自动化 | `a997de69` | 新增 `9 passed`；`tests/services/skill` → `74 passed`；端到端 7 行未执行（需真实实例） |
+| 2026-11-01 | F18 每日计划自动化 | `a997de69` | 新增 `8 passed`（原记 `9 passed`，收尾复核时更正）；`tests/services/skill` → `74 passed`；端到端 7 行未执行（需真实实例） |
 | 2026-11-01 | F04 裁撤 | — | 草稿 id 已随 `tool_result.metadata` 到达前端，新增事件类型会造成两个真相来源；F13 改为读 metadata |
 | 2026-11-01 | 契约工具链打通 | `ce1a9139` | 用 `/tmp` 的临时 Node 22.11 完成 `openapi.json` + `generated/api.ts` 重生成，两端 `--check` 通过 |
+| 2026-11-01 | 补跑漏掉的闸门 | `253e47f4` | 18 项验收都没跑 `npm run test:node`；补跑后抓到 2 条真实回归（原生 `title`、德语破折号），修复后 `1316 passed, 0 failed` |
 
 ---
 
@@ -174,6 +175,18 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 `npm run typecheck`、`npm run contracts:check`、`npm run i18n:parity`、`pytest tests/services/planner`、
 `pytest tests/services/skill`、`pytest tests/services/cron` 均**全绿**。
 
+前端两条整套（收尾复核时全量跑过，不只是规划子集）：
+
+| 命令 | 结果 |
+| --- | --- |
+| `npx vitest run` | 206 files / **1058 passed** |
+| `npm run test:node` | **1316 passed, 0 failed** |
+
+**教训（写在这里，因为它是本规划唯一的流程性失误）**：各功能文档的「验收」只列了与自己相关的
+命令，`npm run test:node` 一次都没被列进去，于是仓库级规则（交互元素不许用原生 `title`、德语
+词条不许用破折号）在两处被违反却没人看见——规矩本身都有测试，只是没人跑。`253e47f4` 修复，
+并把这两条加进「怎么跑一遍」。
+
 ## 怎么跑一遍
 
 ```bash
@@ -183,6 +196,9 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 # 前端（需要 Node 22.12+，见 F11 的「环境实录」）
 cd web && npx vitest run tests/plan-draft-*.spec.tsx tests/plan-starter-copy.spec.ts
 npm run typecheck && npm run contracts:check
+
+# 前端全量（改过共享组件或文案时必须跑：仓库级规则都在 test:node 里）
+npm run test:node && npx vitest run
 ```
 
 端到端（需要真实实例，见 [F18](F18-daily-cron.md) 的 7 行清单）尚未跑过——这是本规划唯一

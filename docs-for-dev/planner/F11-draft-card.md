@@ -109,6 +109,11 @@ npm run i18n:check                                              # parity OK；au
    不动其余依赖。
 3. `web/node_modules` 约 1.3GB、`npm ci` 约 25–60 秒，不入版本库。
 
+**后续修正（`253e47f4`，收尾复核时发现）**：确认按钮上原本挂了一个原生 `title` 来解释「为什么不可点」。
+仓库规则禁止交互元素用原生 `title`（`tests/native-button-title.test.ts`），因为原生提示对触摸和键盘都不可达。
+已改为共享 `Tooltip`，且只在有话可说（未选任何条目）时才包一层。当时的验收命令里没有 `npm run test:node`，
+所以这条规则没被跑到——这是流程失误，不是判断失误。
+
 ## 交付
 
 - 产出物：`web/features/planner/components/PlanDraftCard.tsx` + `plan-draft.css` + `web/lib/planner-api.ts` + 测试 + 6 语言文案（各 20 个 key）

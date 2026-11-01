@@ -77,14 +77,14 @@ cd /root/DeepTutor
 
 **代码零改动**：`daily-plan` 只用现有 `cron` 工具与 `plan_week`，两个文件就是全部产出。
 
-**一处文件清单偏离**：新增 `tests/services/skill/test_daily_plan_skill.py`（9 条用例）。原稿只允许两个
+**一处文件清单偏离**：新增 `tests/services/skill/test_daily_plan_skill.py`（8 条用例）。原稿只允许两个
 skill 文件，但没有测试就无法把「技能能被加载、正文带着那几条规矩」变成可执行判据。除此之外未碰任何
 `.py` / `.ts` / `.json`。
 
 自动部分实测：
 
 ```bash
-pytest tests/services/skill -q   # 74 passed, 2 skipped（含本技能 9 条）
+pytest tests/services/skill -q   # 74 passed, 2 skipped（含本技能 8 条）
 pytest tests/services/cron -q    # 34 passed
 ```
 
@@ -114,6 +114,7 @@ pytest tests/services/cron -q    # 34 passed
 
 ## 交付
 
-- 产出物：`deeptutor/skills/builtin/daily-plan/` 的 2 个文件 + 专属测试 9 条
+- 产出物：`deeptutor/skills/builtin/daily-plan/` 的 2 个文件 + 专属测试 8 条（收尾复核时把原记的
+  「9 条」更正为实际的 8 条）
 - 证据：两份 pytest 输出 + 手工验收表格（7 行全部填写，未执行的行写「未执行」及原因）
 - 通过后：本文件状态改 `☑ 已验收` + commit sha，然后提交
