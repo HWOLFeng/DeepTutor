@@ -132,6 +132,25 @@ class QuestionBankStats(BaseModel):
     uncategorized: int = 0
 
 
+class SetCalibration(BaseModel):
+    """How one practice set is going, and what to generate next.
+
+    ``label`` is a product judgement over the set's attempts (nothing graded
+    yet, too hard, on track, too easy); ``suggested_difficulty`` is what the
+    next 举一反三 batch seeded by this set should start at, so a set the learner
+    keeps failing produces an easier round instead of the same one again.
+    """
+
+    group_ref: str
+    title: str = ""
+    count: int = 0
+    answered: int = 0
+    correct: int = 0
+    accuracy: float = 0.0
+    label: Literal["untouched", "too_hard", "on_track", "too_easy"] = "untouched"
+    suggested_difficulty: str = ""
+
+
 class QuestionBankMaterial(BaseModel):
     source: str
     material_id: str
@@ -496,6 +515,38 @@ async def remove_entry_from_category(entry_id: int, category_id: int):
     if not removed:
         raise HTTPException(status_code=404, detail="Link not found")
     return {"removed": True, "entry_id": entry_id, "category_id": category_id}
+
+
+@router.get("/sets/calibration", response_model=SetCalibration)
+async def get_set_calibration(
+    group: str = Query(..., max_length=512, description="A practice set's group_ref."),
+) -> SetCalibration:
+    """How one set is going, for the practice page's summary strip."""
+    store = get_sqlite_session_store()
+    calibration = await store.notebook_set_calibration(group)
+    if calibration is None:
+        raise HTTPException(status_code=404, detail="Practice set not found")
+    return SetCalibration(**calibration)
+
+
+@router.get("/sets/attention", response_model=list[SetCalibration])
+async def list_sets_needing_practice(
+    limit: int = Query(default=3, ge=1, le=10),
+    min_answered: int = Query(default=3, ge=1, le=50),
+) -> list[SetCalibration]:
+    """Sets that should be practised again, worst accuracy first.
+
+    Backs the "another round" reminder on the practice home. Sets with fewer
+    than ``min_answered`` attempts are left out: three questions is not a
+    measurement.
+    """
+    store = get_sqlite_session_store()
+    return [
+        SetCalibration(**item)
+        for item in await store.notebook_sets_needing_practice(
+            limit=limit, min_answered=min_answered
+        )
+    ]
 
 
 # ── Overview ─────────────────────────────────────────────────────

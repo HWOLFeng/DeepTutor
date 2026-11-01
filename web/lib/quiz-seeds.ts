@@ -53,3 +53,19 @@ export function variantSeedSelection(entries: NotebookEntry[]): {
     tooMany: usable.length > MAX_VARIANT_SEEDS,
   };
 }
+
+/**
+ * Stamp a difficulty on every seed.
+ *
+ * The generator starts at the seed's own band when the request names none, so
+ * "give me an easier round" is expressed by lowering the seeds rather than by
+ * adding a second difficulty knob to the launch hand-off.
+ */
+export function withSeedDifficulty(
+  seeds: QuizSeed[],
+  difficulty: string,
+): QuizSeed[] {
+  const band = difficulty.trim().toLowerCase();
+  if (!band) return seeds;
+  return seeds.map((seed) => ({ ...seed, difficulty: band }));
+}

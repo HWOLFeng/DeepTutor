@@ -9571,6 +9571,11 @@
             "title": "Question Type",
             "type": "string"
           },
+          "topic": {
+            "default": "",
+            "title": "Topic",
+            "type": "string"
+          },
           "user_answer": {
             "default": "",
             "title": "User Answer",
@@ -11039,6 +11044,61 @@
           "session_id"
         ],
         "title": "SessionTaskLinks",
+        "type": "object"
+      },
+      "SetCalibration": {
+        "description": "How one practice set is going, and what to generate next.\n\n``label`` is a product judgement over the set's attempts (nothing graded\nyet, too hard, on track, too easy); ``suggested_difficulty`` is what the\nnext 举一反三 batch seeded by this set should start at, so a set the learner\nkeeps failing produces an easier round instead of the same one again.",
+        "properties": {
+          "accuracy": {
+            "default": 0.0,
+            "title": "Accuracy",
+            "type": "number"
+          },
+          "answered": {
+            "default": 0,
+            "title": "Answered",
+            "type": "integer"
+          },
+          "correct": {
+            "default": 0,
+            "title": "Correct",
+            "type": "integer"
+          },
+          "count": {
+            "default": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "group_ref": {
+            "title": "Group Ref",
+            "type": "string"
+          },
+          "label": {
+            "default": "untouched",
+            "enum": [
+              "untouched",
+              "too_hard",
+              "on_track",
+              "too_easy"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "suggested_difficulty": {
+            "default": "",
+            "title": "Suggested Difficulty",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_ref"
+        ],
+        "title": "SetCalibration",
         "type": "object"
       },
       "SetRoleRequest": {
@@ -46188,6 +46248,178 @@
         "summary": "Summary",
         "tags": [
           "practice"
+        ]
+      }
+    },
+    "/api/question-notebook/sets/attention": {
+      "get": {
+        "description": "Sets that should be practised again, worst accuracy first.\n\nBacks the \"another round\" reminder on the practice home. Sets with fewer\nthan ``min_answered`` attempts are left out: three questions is not a\nmeasurement.",
+        "operationId": "list_sets_needing_practice_api_question_notebook_sets_attention_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 3,
+              "maximum": 10,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_answered",
+            "required": false,
+            "schema": {
+              "default": 3,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Min Answered",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SetCalibration"
+                  },
+                  "title": "Response List Sets Needing Practice Api Question Notebook Sets Attention Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Sets Needing Practice",
+        "tags": [
+          "question-notebook"
+        ]
+      }
+    },
+    "/api/question-notebook/sets/calibration": {
+      "get": {
+        "description": "How one set is going, for the practice page's summary strip.",
+        "operationId": "get_set_calibration_api_question_notebook_sets_calibration_get",
+        "parameters": [
+          {
+            "description": "A practice set's group_ref.",
+            "in": "query",
+            "name": "group",
+            "required": true,
+            "schema": {
+              "description": "A practice set's group_ref.",
+              "maxLength": 512,
+              "title": "Group",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCalibration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Set Calibration",
+        "tags": [
+          "question-notebook"
         ]
       }
     },

@@ -53,6 +53,15 @@ came from mistakes) shows what the learner already has. Use it to:
 - notice when this exact variant batch was already recorded (same name → the
   same set; re-running `record_set` updates it instead of adding a twin).
 
+`record_set` also skips near-duplicates itself (same stem fingerprint + same
+options) and reports `duplicates` in its reply. If it says everything was
+skipped, stop and say so — do not reword one word and call it new.
+
+When the learner is repeating a set they already failed, read its calibration
+first (`GET /api/question-notebook/sets/calibration?group=…` labels it
+`too_hard` / `on_track` / `too_easy`). An easier round is the right answer to
+`too_hard`; generating the same band again is what the loop exists to prevent.
+
 Skip this step only when the bank is empty — `overview` answers that in one call.
 
 ## 3. Choose a variant move per question

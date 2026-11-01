@@ -10,6 +10,8 @@ import {
   type PracticeRef,
   type PracticeSummary,
 } from '@/lib/practice-api'
+import { getSetsNeedingPractice, type SetCalibration } from '@/lib/notebook-api'
+import { practiceRoute } from '@/lib/learning-routes'
 import { LearningShell, LearningErrorState } from '../LearningShell'
 import { useCreateRequest } from '../create-request'
 import { PracticeSession } from './PracticeSession'
@@ -25,6 +27,7 @@ export function ReviewHome() {
   const [starting, setStarting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [notice, setNotice] = useState('')
+  const [attention, setAttention] = useState<SetCalibration[]>([])
   const sequence = useRef(0)
   useCreateRequest(() => setImporting(true))
   const refresh = useCallback(async () => {
@@ -36,6 +39,14 @@ export function ReviewHome() {
       setError('')
     } catch (err) {
       if (request === sequence.current) setError(err instanceof Error ? err.message : String(err))
+    }
+    // Sets that are not landing are a reminder, not the page: a failure here
+    // must never hide today's review count.
+    try {
+      const rows = await getSetsNeedingPractice(3)
+      if (request === sequence.current) setAttention(rows)
+    } catch {
+      if (request === sequence.current) setAttention([])
     }
   }, [])
   useEffect(() => {
@@ -168,6 +179,46 @@ export function ReviewHome() {
               ))}
             </div>
           </section>
+          {attention.length > 0 && (
+            <section
+              className="overflow-hidden rounded-2xl border border-border bg-card"
+              aria-labelledby="practice-again"
+            >
+              <div className="border-b border-border px-6 py-4">
+                <h2 id="practice-again" className="text-sm font-semibold">
+                  {t('Sets that need another round')}
+                </h2>
+              </div>
+              <ul className="divide-y divide-border">
+                {attention.map(item => (
+                  <li
+                    key={item.group_ref}
+                    className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 text-sm"
+                  >
+                    <span className="min-w-0">
+                      <span className="font-medium">
+                        {item.title || t('Other questions')}
+                      </span>{' '}
+                      <span className="text-muted-foreground">
+                        {t('Accuracy {{percent}}%', {
+                          percent: Math.round(item.accuracy * 100),
+                        })}
+                      </span>
+                    </span>
+                    <Link
+                      href={practiceRoute(
+                        new URLSearchParams({ group: item.group_ref, file: item.title })
+                      )}
+                      className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-foreground hover:underline"
+                    >
+                      {t('Practice another round')}
+                      <ArrowRight size={13} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-xs text-muted-foreground">
             <p>{t('Recall first, then check. Forgotten questions come back in this round.')}</p>
             <Link

@@ -51,6 +51,7 @@ def _quiz_answers():
             "correct_answer": "B",
             "explanation": "Paris is the capital.",
             "difficulty": "easy",
+            "topic": "欧洲地理",
             "is_correct": False,
         },
         {
@@ -657,3 +658,27 @@ def test_quiz_results_file_the_turn_as_a_named_practice_set(store: SQLiteSession
         rows = asyncio.run(store.list_notebook_navigation())
         assert sorted(row["title"] for row in rows) == ["Dot products", "Projection · variants"]
         assert sorted(row["count"] for row in rows) == [2, 2]
+
+
+def test_quiz_results_keep_each_questions_knowledge_point(store: SQLiteSessionStore) -> None:
+    """The knowledge point the card showed must survive into the bank.
+
+    A set is the batch; the knowledge point is what the batch practises, and
+    the two are not the same axis — one quiz can span several topics.
+    """
+    session = asyncio.run(store.create_session())
+    sid = session["id"]
+    answers = _quiz_answers()
+    answers[1]["topic"] = "算术基础"
+
+    with TestClient(_build_app(store)) as client:
+        resp = client.post(
+            f"/api/sessions/{sid}/quiz-results",
+            json={"answers": answers, "turn_id": "turn_sections"},
+        )
+        assert resp.status_code == 200, resp.text
+
+        items = client.get("/api/question-notebook/entries").json()["items"]
+        by_id = {item["question_id"]: item for item in items}
+        assert by_id["q1"]["section_title"] == "欧洲地理"
+        assert by_id["q2"]["section_title"] == "算术基础"

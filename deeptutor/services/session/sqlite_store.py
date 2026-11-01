@@ -41,6 +41,9 @@ from deeptutor.utils.secret_files import ensure_private_directory, ensure_privat
 from .ask_user_trace import select_ask_user_events
 from .event_preview import MAX_TRACE_PREVIEW_EVENTS, compact_trace_preview
 from .notebook_sets import (
+    calibration_payload as _calibration_payload,
+)
+from .notebook_sets import (
     group_filter,
     group_key_from_ref,
     group_key_sql,
@@ -4303,6 +4306,144 @@ class SQLiteSessionStore:
     async def list_notebook_navigation(self) -> list[dict[str, Any]]:
         """Read one addressable row per practice set for the learning sidebar."""
         return await self._run(self._list_notebook_navigation_sync)
+
+    def _notebook_set_accuracy_sync(self) -> dict[str, dict[str, int]]:
+        """Per-set attempt counts, keyed like the navigation rows.
+
+        One query for every set, because the practice home needs the sets that
+        are *doing badly*, not one set at a time. ``answered`` counts entries
+        the learner actually attempted (an import can carry an answer, a
+        generated variant starts with none); ``correct`` counts the ones graded
+        right, using the same ``result``/``is_correct`` rule as the bank.
+        """
+        group_key_sql_text = group_key_sql()
+        answered_sql = (
+            "COALESCE(user_answer, '') != '' OR COALESCE(result, '') "
+            "IN ('correct', 'incorrect', 'partial')"
+        )
+        correct_sql = "(result = 'correct' OR (COALESCE(result, '') = '' AND is_correct = 1))"
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    {group_key_sql_text} AS group_key,
+                    COUNT(*) AS total,
+                    COALESCE(SUM(CASE WHEN {answered_sql} THEN 1 ELSE 0 END), 0) AS answered,
+                    COALESCE(SUM(CASE WHEN {correct_sql} THEN 1 ELSE 0 END), 0) AS correct
+                FROM notebook_entries n
+                WHERE {_NOT_RECYCLED_ENTRY_SQL.format(entries="n")}
+                GROUP BY group_key
+                """  # nosec B608 - literal fragments only; no values interpolate
+            ).fetchall()
+        return {str(row["group_key"]): dict(row) for row in rows}
+
+    def _list_notebook_sets_calibration_sync(
+        self, limit: int, min_answered: int
+    ) -> list[dict[str, Any]]:
+        """Every set with an attempt, most in need of another round first.
+
+        ``label`` and ``suggested_difficulty`` are the product's read on the
+        set: a set the learner keeps failing should produce an easier batch
+        next time, not the same one again. Sets with too few attempts say
+        nothing — three questions is not a measurement.
+        """
+        accuracy = self._notebook_set_accuracy_sync()
+        sets: list[dict[str, Any]] = []
+        for row in self._list_notebook_navigation_sync():
+            group_key = group_key_from_ref(row["group_ref"])
+            stats = accuracy.get(group_key)
+            if stats is None:
+                continue
+            answered = int(stats["answered"])
+            correct = int(stats["correct"])
+            if answered < min_answered:
+                continue
+            calibration = _calibration_payload(
+                group_ref=row["group_ref"],
+                title=row["title"],
+                total=int(stats["total"]),
+                answered=answered,
+                correct=correct,
+            )
+            # Only a set that is not landing needs another round; an on-track
+            # or too-easy set is already served by its own reviews.
+            if calibration["label"] != "too_hard":
+                continue
+            sets.append(calibration)
+        sets.sort(key=lambda item: (item["accuracy"], -item["answered"]))
+        return sets[: max(1, int(limit))]
+
+    def _notebook_set_calibration_sync(self, group_ref: str) -> dict[str, Any] | None:
+        """Calibration for one set, named like its navigation row."""
+        row = next(
+            (
+                candidate
+                for candidate in self._list_notebook_navigation_sync()
+                if candidate["group_ref"] == group_ref
+            ),
+            None,
+        )
+        if row is None:
+            return None
+        stats = self._notebook_set_accuracy_sync().get(group_key_from_ref(group_ref), {})
+        return _calibration_payload(
+            group_ref=row["group_ref"],
+            title=row["title"],
+            total=int(stats.get("total") or row["count"]),
+            answered=int(stats.get("answered") or 0),
+            correct=int(stats.get("correct") or 0),
+        )
+
+    async def notebook_set_calibration(self, group_ref: str) -> dict[str, Any] | None:
+        """How one practice set is going (see the sync twin)."""
+        return await self._run(self._notebook_set_calibration_sync, (group_ref or "").strip())
+
+    async def notebook_sets_needing_practice(
+        self, limit: int = 3, min_answered: int = 3
+    ) -> list[dict[str, Any]]:
+        """Sets the learner should re-practise, worst accuracy first."""
+        return await self._run(
+            self._list_notebook_sets_calibration_sync,
+            max(1, int(limit)),
+            max(1, int(min_answered)),
+        )
+
+    def _notebook_question_identities_sync(
+        self, limit: int, group_ref: str
+    ) -> list[dict[str, Any]]:
+        """Minimal rows for duplicate detection: text, options and owning set.
+
+        A generated batch must not restate questions the bank already holds,
+        and the decision needs the stem plus the option set — comparing stems
+        alone would call two multiple-choice questions with different choices
+        duplicates. Newest first, bounded: a personal bank is small, and an
+        unbounded scan on a shared deployment would be a latency bomb.
+        """
+        query = QuestionBankQuery(group_ref=group_ref, limit=limit, sort="recent")
+        _, where_sql, params = self._question_bank_filters(query.normalized())
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT n.id, n.question, n.options_json, n.material_id, "
+                f"COALESCE(n.material_title, '') AS material_title "
+                f"FROM notebook_entries n{where_sql} ORDER BY n.id DESC LIMIT ?",
+                tuple(params) + (max(1, int(limit)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def notebook_question_identities(
+        self, limit: int = 5000, group_ref: str = ""
+    ) -> list[dict[str, Any]]:
+        """Question identities for near-duplicate checks (see the sync twin).
+
+        ``group_ref`` narrows the comparison to one set, which is what the
+        caller uses on a re-run: a batch must not treat its own rows as
+        duplicates of itself.
+        """
+        return await self._run(
+            self._notebook_question_identities_sync,
+            max(1, int(limit)),
+            (group_ref or "").strip(),
+        )
 
     async def list_notebook_entries(
         self,

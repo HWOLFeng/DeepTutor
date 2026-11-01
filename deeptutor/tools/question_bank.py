@@ -49,9 +49,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import hashlib
+import json
 import logging
 import time
 from typing import Any
+
+from deeptutor.services.practice.quality import question_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +81,11 @@ MAX_ANSWER_PREVIEW = 60
 MAX_CATEGORY_NAME = 100
 MAX_SET_TITLE = 120
 MAX_SET_QUESTIONS = 30
+
+#: How many bank rows a duplicate check reads. Enough to catch a repeated batch
+#: in any personal bank; bounded so a shared deployment never pays for a scan
+#: that cannot finish.
+DEDUPE_SCAN_LIMIT = 5000
 
 
 @dataclass(frozen=True)
@@ -286,11 +294,23 @@ async def _resolve_or_create_category(store: Any, name: str) -> tuple[dict[str, 
 
     Reuses an existing name case-insensitively so "Wrong Answers" and
     "wrong answers" cannot become two piles of the same thing.
+
+    The lookup is not atomic: an agent that records several questions in
+    parallel passes the same category name to each call, and they all miss it
+    at once. Losing that race is not an error — the category exists, which is
+    exactly what the caller wanted — so re-read it instead of failing the
+    filing with "already exists".
     """
     existing = await store.find_category_by_name(name)
     if existing is not None:
         return existing, False
-    created = await store.create_category(name)
+    try:
+        created = await store.create_category(name)
+    except ValueError:
+        raced = await store.find_category_by_name(name)
+        if raced is None:
+            raise
+        return raced, False
     return created, True
 
 
@@ -463,8 +483,8 @@ def _record_set_identity(set_name: str = "") -> RecordSetIdentity:
     origin_ref = f"chat:{actor_id or 'self'}"
     day = _local_day()
     title = explicit or f"Mistakes · {day}"
-    material_id = f"chat:{actor_id or 'self'}:{day}" if not explicit else _named_set_id(
-        origin_ref, explicit
+    material_id = (
+        f"chat:{actor_id or 'self'}:{day}" if not explicit else _named_set_id(origin_ref, explicit)
     )
     return RecordSetIdentity(
         origin_ref=origin_ref,
@@ -558,6 +578,32 @@ async def _record(
     return QuestionBankOutcome(ok=True, action="record", text=" ".join(parts), summary=summary)
 
 
+def _option_signature(options: Any) -> str:
+    """The option set as one comparable value (order and case insensitive)."""
+    if isinstance(options, str):
+        try:
+            options = json.loads(options)
+        except (TypeError, ValueError):
+            return ""
+    if not isinstance(options, dict):
+        return ""
+    values = [
+        str(value).strip().casefold() for value in options.values() if str(value or "").strip()
+    ]
+    return "|".join(sorted(values))
+
+
+def _question_signature(question: Any, options: Any) -> str:
+    """Content identity: the stem's fingerprint plus its option set.
+
+    The stem alone is too coarse — two choices questions can share a stem while
+    offering different answers, and merging them would throw away a real
+    question. Blank positions are ignored by the fingerprint, so the same
+    worksheet filled in differently still collapses.
+    """
+    return f"{question_fingerprint(str(question or ''))}::{_option_signature(options)}"
+
+
 def _coerce_questions(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
     """Normalise the model's ``questions`` array into recordable items.
 
@@ -594,6 +640,7 @@ def _coerce_questions(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
                 "correct_answer": _truncate(entry.get("correct_answer"), MAX_RECORD_FIELD),
                 "explanation": _truncate(entry.get("explanation"), MAX_RECORD_FIELD),
                 "difficulty": _truncate(entry.get("difficulty"), 40),
+                "topic": _truncate(entry.get("topic"), 120),
             }
         )
     if len(raw) > MAX_SET_QUESTIONS:
@@ -625,7 +672,7 @@ async def _record_set(
             action="record_set",
             error=(
                 "`set` is required — name the batch after what it practises, e.g. "
-                "\"二次函数 · 变式 5 题\" or \"Fractions review · 2026-11-01\". "
+                '"二次函数 · 变式 5 题" or "Fractions review · 2026-11-01". '
                 "The name is what the learner sees in the learning sidebar."
             ),
         )
@@ -637,6 +684,42 @@ async def _record_set(
             error="`questions` must contain at least one question with a stem.",
         )
     identity = _record_set_identity(title)
+    # Near-duplicate pass: a batch must not restate questions the bank already
+    # holds. Rows of *this* set are excluded — re-running the same named batch
+    # is an update, not a pile of duplicates of itself.
+    existing = await store.notebook_question_identities(limit=DEDUPE_SCAN_LIMIT)
+    seen = {
+        _question_signature(row.get("question"), row.get("options_json"))
+        for row in existing
+        if str(row.get("material_id") or "") != identity.material_id
+    }
+    kept: list[dict[str, Any]] = []
+    duplicates = 0
+    for question in questions:
+        signature = _question_signature(question["question"], question["options"])
+        if signature in seen:
+            duplicates += 1
+            continue
+        # Two variants inside one call must not be near-identical either.
+        seen.add(signature)
+        kept.append(question)
+    if not kept:
+        return QuestionBankOutcome(
+            ok=True,
+            action="record_set",
+            text=(
+                f"Nothing new to save: all {duplicates} question(s) already exist "
+                f"in the bank. The set '{identity.title}' would not add anything."
+            ),
+            summary={
+                "material_id": identity.material_id,
+                "set_title": identity.title,
+                "saved": 0,
+                "duplicates": duplicates,
+                "requested": len(questions),
+            },
+        )
+    questions = kept
     items = [
         {
             "origin_type": "external_import",
@@ -653,6 +736,9 @@ async def _record_set(
             "correct_answer": question["correct_answer"],
             "explanation": question["explanation"],
             "difficulty": question["difficulty"],
+            # The knowledge point rides on the entry, so a generated set can be
+            # studied by topic as well as by batch.
+            "section_title": question["topic"],
             "user_answer": "",
             "source": identity.source,
             "material_id": identity.material_id,
@@ -672,9 +758,11 @@ async def _record_set(
             action="record_set",
             error="The bank rejected the set; nothing was recorded.",
         )
-    parts = [
-        f"Saved {upserted} question(s) as the practice set '{identity.title}'."
-    ]
+    parts = [f"Saved {upserted} question(s) as the practice set '{identity.title}'."]
+    if duplicates:
+        parts.append(
+            f"Skipped {duplicates} that already exist in the bank (same stem and options)."
+        )
     if rejected:
         parts.append(f"Skipped {', '.join(rejected[:5])}.")
     name = (category or "").strip()[:MAX_CATEGORY_NAME]
@@ -684,6 +772,7 @@ async def _record_set(
         "material_id": identity.material_id,
         "set_title": identity.title,
         "saved": upserted,
+        "duplicates": duplicates,
         "requested": len(questions),
         "source": identity.source,
     }

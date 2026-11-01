@@ -175,6 +175,60 @@
 种子为空却声称「有种子」会直接报错（`variants_invalid_seeds`），不会静默退化成
 按主题出题——那等于回答了另一个请求。
 
+
+## 去重、知识点与下一组（第三期）
+
+题组能开、能命名之后，剩下三件事让「举一反三」变成闭环：不要让同一道题反复出现、
+记住每组在练什么、并让一次失败变成下一次更容易的一组。
+
+### 近似重复不落库
+
+`record_set` 在写入前做一次近似重复检查（[question_bank.py](../deeptutor/tools/question_bank.py)）：
+
+- 指纹 = 题干指纹（忽略空格、标点、填空位）+ 选项集合（忽略顺序与大小写）；
+- 只比较**本题组以外**的题目：同一批重跑是更新，不会把自己的题当成重复；
+- 同一批内部的近似重复也会被跳过；
+- 返回文本与 `summary.duplicates` 报告跳过了几道，全部重复时明确说「没有新增」。
+
+判定口径刻意保守：题干相同但选项不同的选择题算两道题——选项本身就是题目，合并
+会丢掉一道真题。
+
+### 知识点回填
+
+每道题带一个知识点标签（`section_title`）：
+
+- 会话测验：`POST /sessions/{id}/quiz-results` 的每条答案可带 `topic`（卡片上的
+  `concentration`），落库为 `section_title`；
+- 变式题组：`record_set` 的每道题可带 `topic`。
+
+于是同一个题组可以按知识点查看，后续统计也不必再从题干里猜。
+
+### 校准：这组题到底练得怎么样
+
+`GET /api/question-notebook/sets/calibration?group=<group_ref>`
+
+| 字段 | 含义 |
+| --- | --- |
+| `count` / `answered` / `correct` | 组内题数、已作答数、答对数（已作答 = 有作答或有判定结果，未作答的生成题不计为错） |
+| `accuracy` | `correct / answered` |
+| `label` | `untouched`（还没作答）、`too_hard`（< 50%）、`on_track`、`too_easy`（≥ 90%） |
+| `suggested_difficulty` | 下一组建议难度：太难看 `easy`，太容易看 `hard`，其余留空 |
+
+`GET /api/question-notebook/sets/attention?limit=3&min_answered=3`
+返回需要再练一组的题组（仅 `too_hard`，正确率由低到高）；少于 `min_answered`
+次尝试的组不参与——三道题不构成一次测量。
+
+前端两处使用：
+
+- **题组页顶部**：正确率、答对数与「需要再练一组」标记，附一个按钮直接用本组题目
+  开一组变式；太难的组把种子的难度下调一档（`withSeedDifficulty`），太容易的上调
+  一档；
+- **练习首页**：列出最多 3 个需要再练的题组，点进去落在题组页——提醒只负责指出
+  哪一组，生成动作仍发生在题组页。
+
+提醒是**每次读取时计算**的，没有新增调度器：练习首页刷新（进入页面、窗口聚焦、
+每分钟轮询）就会重新评估，复习调度保持不变。
+
 ## 为什么要（也不只要）沉淀成 Skill
 
 结论：**要沉淀，但 Skill 只承担判断与流程，身份与渲染必须留在代码里。**
@@ -212,12 +266,21 @@ agent 不知道该在什么时机、用什么手法生成变式。两者缺一�
 3. **命名与落库打通**：变式批次作答后按 `quiz:<turn_id>` + 主题名成组，
    与普通测验完全一致（技能路径则用 `record_set`）。
 
-**第三期（待做）**
+**第三期（已实现）**
 
-- **去重与难度校准**：题库内近似重复检测（题干指纹 + 选项集合），
-  种子知识点标签回填到生成的题目上；
-- 变式正确率回填：用复习结果标注「这组变式偏难/偏易」，供下次生成参考；
-- 周期性的「同知识点再练一组」提醒（复用现有复习调度，不新增调度器）。
+- **去重**：`record_set` 按「题干指纹 + 选项集合」跳过与题库其他题近似重复的题，
+  并报告跳过数量（不误伤同题组重跑与同题干不同选项的题）；
+- **知识点回填**：测验答案与变式题都带 `topic` → `section_title`，题组可按知识点看待；
+- **变式表现回填**：题组校准接口给出正确率、`too_hard`/`on_track`/`too_easy` 判定
+  与下一组建议难度；题组页据此一键开「更简单/更难」的下一组；
+- **提醒**：练习首页列出需要再练的题组（每次读取时计算，不新增调度器）。
+
+**第四期（待做）**
+
+- 把「建议难度」直接带给 `deep_question` 的变式模式（目前通过下调种子难度实现，
+  等价但不够显式）；
+- 近似重复检测加入语义相似（现在只看题干与选项的确定性指纹）；
+- 跨设备/邮件的「再练一组」推送（现在只有打开练习页时的提醒）。
 
 ## 验收清单
 
@@ -233,6 +296,11 @@ agent 不知道该在什么时机、用什么手法生成变式。两者缺一�
 | 测验卡片 ✨ | 以当前题为唯一种子，生成 3 道；可用在作答之前 |
 | 勾选超过 5 题 | 「相似题」置灰并说明上限，不会静默截断 |
 | 种子被清空后发送 | 回到按主题出题，不再声称变式 |
+| 重复生成同一批题 | `record_set` 报告 `duplicates`，题库题数不变 |
+| 题干相同、选项不同的两道题 | 两道都保存，不被当作重复 |
+| 题组答对 1/4 | 题组页显示「正确率 25%，需要再练一组」，按钮生成更简单的一组 |
+| 练习首页 | 最多列出 3 个正确率低于 50% 的题组，点进去是题组页 |
+| 未作答的新题组 | 不显示校准条，也不进提醒列表 |
 | 旧 `?group=<material_id>` 链接 | 仍然打开对应导入题组 |
 
 ## 实现索引
@@ -245,7 +313,13 @@ agent 不知道该在什么时机、用什么手法生成变式。两者缺一�
 - 侧栏与链接：[learning-dashboard.ts](../web/lib/learning-dashboard.ts)、
   [LearningNavigation.tsx](../web/components/sidebar/LearningNavigation.tsx)、
   [PracticeGroupSession.tsx](../web/components/learning/practice/PracticeGroupSession.tsx)
-- agent 写入：[question_bank.py](../deeptutor/tools/question_bank.py)（`record`、`record_set`）
+- agent 写入：[question_bank.py](../deeptutor/tools/question_bank.py)（`record`、`record_set`、近似重复、知识点）
+- 校准：
+  [notebook_sets.py](../deeptutor/services/session/notebook_sets.py)（`calibration_payload`）、
+  [sqlite_store.py](../deeptutor/services/session/sqlite_store.py)（`notebook_set_calibration`、`notebook_sets_needing_practice`）、
+  [question_notebook.py](../deeptutor/api/routers/question_notebook.py)（`/sets/calibration`、`/sets/attention`）、
+  [PracticeGroupSession.tsx](../web/components/learning/practice/PracticeGroupSession.tsx)、
+  [ReviewHome.tsx](../web/components/learning/practice/ReviewHome.tsx)
 - 变式模式（后端）：[capability.py](../deeptutor/agents/question/capability.py)（`_seed_questions`、`_run_variants`）、
   [pipeline.py](../deeptutor/agents/question/pipeline.py)（`source="variant"`、`is_variants`、组名后缀）、
   [prompts/en/pipeline.yaml](../deeptutor/agents/question/prompts/en/pipeline.yaml)、
@@ -264,4 +338,6 @@ agent 不知道该在什么时机、用什么手法生成变式。两者缺一�
   [test_variants.py](../tests/agents/question/test_variants.py)、
   [quiz-seeds.test.ts](../web/tests/quiz-seeds.test.ts)、
   [variant-launch.spec.ts](../web/tests/variant-launch.spec.ts)、
-  [quiz-config-seeds.spec.tsx](../web/tests/quiz-config-seeds.spec.tsx)
+  [quiz-config-seeds.spec.tsx](../web/tests/quiz-config-seeds.spec.tsx)、
+  [practice-attention.spec.tsx](../web/tests/practice-attention.spec.tsx)、
+  [practice-group.spec.tsx](../web/tests/practice-group.spec.tsx)

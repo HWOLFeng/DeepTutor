@@ -2,7 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import type { NotebookEntry } from "../lib/notebook-api";
-import { MAX_VARIANT_SEEDS, buildQuizSeeds, variantSeedSelection } from "../lib/quiz-seeds";
+import {
+  MAX_VARIANT_SEEDS,
+  buildQuizSeeds,
+  variantSeedSelection,
+  withSeedDifficulty,
+} from "../lib/quiz-seeds";
 import {
   DEFAULT_QUIZ_CONFIG,
   buildQuizWSConfig,
@@ -155,4 +160,22 @@ test("the collapsed summary says the batch is seeded", () => {
   assert.ok(summary.includes("Variants"));
   assert.ok(summary.includes("2 seeds"));
   assert.ok(!summary.includes("Custom"));
+});
+
+test("an easier round is expressed on the seeds, not as a second knob", () => {
+  const seeds = buildQuizSeeds([
+    entry({ id: 1, difficulty: "medium" }),
+    entry({ id: 2, difficulty: "hard", question: "Solve 4x - 7 = 21." }),
+  ]);
+
+  const easier = withSeedDifficulty(seeds, "easy");
+  assert.deepEqual(
+    easier.map(seed => seed.difficulty),
+    ["easy", "easy"],
+  );
+  // The question and its answer survive: only the target band changes.
+  assert.equal(easier[0].question, seeds[0].question);
+  assert.equal(easier[0].correct_answer, seeds[0].correct_answer);
+  // No band named means "keep the seeds' own difficulty".
+  assert.deepEqual(withSeedDifficulty(seeds, ""), seeds);
 });

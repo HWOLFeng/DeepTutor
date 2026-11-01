@@ -18,6 +18,7 @@ import asyncio
 import pytest
 
 from deeptutor.services.session.notebook_sets import (
+    calibration_payload,
     group_key_from_ref,
     set_ref,
     set_title,
@@ -205,3 +206,116 @@ def test_set_title_prefers_provenance_then_context_then_content() -> None:
     assert set_title(session_title="New conversation", sample_question="求投影？") == "求投影？"
     assert set_title(sample_question="a" * 200).endswith("a" * 120)
     assert set_title() == ""
+
+
+def test_calibration_reads_the_attempts_without_inventing_evidence() -> None:
+    untouched = calibration_payload(
+        group_ref="g:material|quiz:t1", title="Variants", total=5, answered=0, correct=0
+    )
+    assert untouched["label"] == "untouched"
+    assert untouched["suggested_difficulty"] == ""
+    assert untouched["accuracy"] == 0.0
+
+    failing = calibration_payload(
+        group_ref="g:material|quiz:t2", title="Variants", total=5, answered=4, correct=1
+    )
+    assert failing["label"] == "too_hard"
+    assert failing["accuracy"] == 0.25
+    # A set the learner keeps failing should produce an easier batch next time.
+    assert failing["suggested_difficulty"] == "easy"
+
+    easy = calibration_payload(
+        group_ref="g:material|quiz:t3", title="Variants", total=5, answered=5, correct=5
+    )
+    assert easy["label"] == "too_easy"
+    assert easy["suggested_difficulty"] == "hard"
+
+    on_track = calibration_payload(
+        group_ref="g:material|quiz:t4", title="Variants", total=5, answered=5, correct=3
+    )
+    assert on_track["label"] == "on_track"
+    assert on_track["suggested_difficulty"] == ""
+    # Correct can never exceed answered, whatever a caller passes.
+    assert calibration_payload(
+        group_ref="g:x", title="", total=1, answered=1, correct=9
+    )["correct"] == 1
+
+
+def _attempted(store: SQLiteSessionStore, material_id: str, correct: int, wrong: int) -> None:
+    items = [
+        {
+            "origin_type": "external_import",
+            "origin_ref": "practice-import",
+            "material_id": material_id,
+            "material_title": material_id,
+            "question_id": f"{material_id}-c{index}",
+            "question": f"correct {index} of {material_id}",
+            "source": "import",
+            "result": "correct",
+            "is_correct": True,
+            "user_answer": "A",
+        }
+        for index in range(correct)
+    ] + [
+        {
+            "origin_type": "external_import",
+            "origin_ref": "practice-import",
+            "material_id": material_id,
+            "material_title": material_id,
+            "question_id": f"{material_id}-w{index}",
+            "question": f"wrong {index} of {material_id}",
+            "source": "import",
+            "result": "incorrect",
+            "is_correct": False,
+            "user_answer": "B",
+        }
+        for index in range(wrong)
+    ]
+    asyncio.run(store.upsert_notebook_entries(None, items))
+
+
+def test_a_set_calibration_counts_only_attempted_questions(store: SQLiteSessionStore) -> None:
+    _attempted(store, "import:hard", correct=1, wrong=3)
+    # An untouched question in the same set is not a failure.
+    asyncio.run(
+        store.upsert_notebook_entries(
+            None,
+            [
+                {
+                    "origin_type": "external_import",
+                    "origin_ref": "practice-import",
+                    "material_id": "import:hard",
+                    "material_title": "hard",
+                    "question_id": "import:hard-untouched",
+                    "question": "untouched",
+                    "source": "import",
+                    "result": "ungraded",
+                    "is_correct": False,
+                }
+            ],
+        )
+    )
+
+    calibration = asyncio.run(store.notebook_set_calibration("g:material|import:hard"))
+
+    assert calibration is not None
+    assert calibration["count"] == 5
+    assert calibration["answered"] == 4
+    assert calibration["correct"] == 1
+    assert calibration["accuracy"] == 0.25
+    assert calibration["label"] == "too_hard"
+
+
+def test_sets_needing_practice_ignore_unmeasured_sets_and_rank_worst_first(
+    store: SQLiteSessionStore,
+) -> None:
+    _attempted(store, "import:worst", correct=0, wrong=4)
+    _attempted(store, "import:bad", correct=1, wrong=3)
+    _attempted(store, "import:fine", correct=4, wrong=1)
+    _attempted(store, "import:tiny", correct=0, wrong=2)  # too few attempts
+
+    attention = asyncio.run(store.notebook_sets_needing_practice(limit=3))
+
+    assert [item["title"] for item in attention] == ["import:worst", "import:bad"]
+    assert attention[0]["accuracy"] < attention[1]["accuracy"]
+    assert asyncio.run(store.notebook_set_calibration("g:material|import:nope")) is None

@@ -284,6 +284,24 @@ export interface QuestionBankMaterial {
   unresolved_count: number;
 }
 
+/**
+ * How one practice set is going, and what to generate next.
+ *
+ * `label` is a product judgement over the set's attempts; `suggested_difficulty`
+ * is what the next seeded batch should start at, so a set the learner keeps
+ * failing produces an easier round instead of the same one again.
+ */
+export interface SetCalibration {
+  group_ref: string;
+  title: string;
+  count: number;
+  answered: number;
+  correct: number;
+  accuracy: number;
+  label: "untouched" | "too_hard" | "on_track" | "too_easy";
+  suggested_difficulty: string;
+}
+
 export interface NotebookEntryListResponse {
   items: NotebookEntry[];
   total: number;
@@ -370,6 +388,29 @@ export async function listNotebookEntries(
     { cache: "no-store" },
   );
   return expectJson<NotebookEntryListResponse>(response);
+}
+
+export async function getSetCalibration(
+  groupRef: string,
+): Promise<SetCalibration> {
+  const response = await apiFetch(
+    apiUrl(
+      `/api/question-notebook/sets/calibration?group=${encodeURIComponent(groupRef)}`,
+    ),
+    { cache: "no-store" },
+  );
+  return expectJson<SetCalibration>(response);
+}
+
+/** Sets the learner should practise again, worst accuracy first. */
+export async function getSetsNeedingPractice(
+  limit = 3,
+): Promise<SetCalibration[]> {
+  const response = await apiFetch(
+    apiUrl(`/api/question-notebook/sets/attention?limit=${limit}`),
+    { cache: "no-store" },
+  );
+  return expectJson<SetCalibration[]>(response);
 }
 
 export async function getNotebookEntry(

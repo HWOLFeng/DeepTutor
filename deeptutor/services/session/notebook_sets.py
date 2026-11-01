@@ -80,6 +80,14 @@ SESSION_TITLE_PLACEHOLDERS = frozenset({"new conversation"})
 MAX_SET_TITLE = 120
 MAX_SET_REF = 512
 
+#: An accuracy band is a product judgement, not a grading rule: below half the
+#: batch is not landing, above nine in ten it is too easy to teach anything.
+TOO_HARD_ACCURACY = 0.5
+TOO_EASY_ACCURACY = 0.9
+
+#: What the next batch of this set should start at, given how this one went.
+NEXT_DIFFICULTY = {"too_hard": "easy", "too_easy": "hard"}
+
 
 def _collapse(value: Any) -> str:
     return " ".join(str(value or "").split())
@@ -143,6 +151,42 @@ def set_title(
     return ""
 
 
+def calibration_payload(
+    *,
+    group_ref: str,
+    title: str,
+    total: int,
+    answered: int,
+    correct: int,
+) -> dict[str, Any]:
+    """How a set is going, and what the next batch of it should look like.
+
+    ``untouched`` is deliberately not a failure: a freshly generated set has no
+    attempts yet, and calling it easy or hard would be inventing evidence.
+    """
+    answered = max(0, int(answered))
+    correct = min(max(0, int(correct)), answered)
+    accuracy = round(correct / answered, 3) if answered else 0.0
+    if answered == 0:
+        label, suggested = "untouched", ""
+    elif accuracy < TOO_HARD_ACCURACY:
+        label, suggested = "too_hard", NEXT_DIFFICULTY["too_hard"]
+    elif accuracy >= TOO_EASY_ACCURACY:
+        label, suggested = "too_easy", NEXT_DIFFICULTY["too_easy"]
+    else:
+        label, suggested = "on_track", ""
+    return {
+        "group_ref": group_ref,
+        "title": title,
+        "count": max(0, int(total)),
+        "answered": answered,
+        "correct": correct,
+        "accuracy": accuracy,
+        "label": label,
+        "suggested_difficulty": suggested,
+    }
+
+
 __all__ = [
     "GROUP_KEY_SQL",
     "MAX_SET_REF",
@@ -150,6 +194,9 @@ __all__ = [
     "SESSION_TITLE_PLACEHOLDERS",
     "SET_REF_PREFIX",
     "SET_SOURCES",
+    "TOO_EASY_ACCURACY",
+    "TOO_HARD_ACCURACY",
+    "calibration_payload",
     "group_filter",
     "group_key_from_ref",
     "group_key_sql",

@@ -392,14 +392,18 @@ async def test_record_set_is_idempotent_for_the_same_named_batch(
 
 @pytest.mark.asyncio
 async def test_a_different_named_batch_stays_its_own_set(store: SQLiteSessionStore) -> None:
+    harder = [{**_VARIANT_QUESTIONS[0], "question": "Solve 9x + 5 = 32."}]
     first = await run_question_bank(
         action="record_set", set_name="One-step equations", questions=_VARIANT_QUESTIONS, store=store
     )
     second = await run_question_bank(
-        action="record_set", set_name="One-step equations · harder", questions=_VARIANT_QUESTIONS, store=store
+        action="record_set", set_name="One-step equations · harder", questions=harder, store=store
     )
 
     assert first.summary["material_id"] != second.summary["material_id"]
+    # Same name is not the same set, and a *different* question under a new
+    # name is a second batch rather than a duplicate of the first.
+    assert second.summary["saved"] == 1
     assert len(await store.list_notebook_navigation()) == 2
 
 
@@ -428,3 +432,126 @@ async def test_record_set_reports_junk_questions_instead_of_saving_a_short_set(
     assert outcome.ok, outcome.error
     assert outcome.summary["saved"] == 1
     assert "Skipped" in outcome.text
+
+
+# ── record_set: near-duplicate questions are skipped, not doubled ─────────
+
+
+@pytest.mark.asyncio
+async def test_record_set_skips_questions_the_bank_already_holds(
+    store: SQLiteSessionStore,
+) -> None:
+    first = await run_question_bank(
+        action="record_set",
+        set_name="One-step equations",
+        questions=_VARIANT_QUESTIONS,
+        store=store,
+    )
+    assert first.ok and first.summary["saved"] == 2
+
+    # The same questions under a different name: same stem + same options means
+    # the bank already has them, so a second set would be a copy.
+    second = await run_question_bank(
+        action="record_set",
+        set_name="One-step equations · second pass",
+        questions=_VARIANT_QUESTIONS,
+        store=store,
+    )
+
+    assert second.ok, second.error
+    assert second.summary["saved"] == 0
+    assert second.summary["duplicates"] == 2
+    assert "already exist" in second.text
+    assert (await store.question_bank_stats())["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_record_set_skips_near_duplicates_inside_one_batch(
+    store: SQLiteSessionStore,
+) -> None:
+    duplicated = [
+        _VARIANT_QUESTIONS[0],
+        {**_VARIANT_QUESTIONS[0], "question": "  Solve 3x+5=20.  "},
+        _VARIANT_QUESTIONS[1],
+    ]
+    outcome = await run_question_bank(
+        action="record_set",
+        set_name="Equations",
+        questions=duplicated,
+        store=store,
+    )
+
+    assert outcome.ok, outcome.error
+    assert outcome.summary["saved"] == 2
+    assert outcome.summary["duplicates"] == 1
+
+
+@pytest.mark.asyncio
+async def test_two_questions_with_the_same_stem_but_different_options_both_save(
+    store: SQLiteSessionStore,
+) -> None:
+    # A stem alone is too coarse to call duplicates: the choices are the
+    # question. Both belong in the bank.
+    outcome = await run_question_bank(
+        action="record_set",
+        set_name="Choices",
+        questions=[
+            {**_VARIANT_QUESTIONS[0], "options": {"A": "5", "B": "15"}},
+            {**_VARIANT_QUESTIONS[0], "options": {"A": "7", "B": "5"}},
+        ],
+        store=store,
+    )
+
+    assert outcome.ok, outcome.error
+    assert outcome.summary["saved"] == 2
+    assert outcome.summary["duplicates"] == 0
+
+
+@pytest.mark.asyncio
+async def test_record_set_keeps_each_questions_knowledge_point(
+    store: SQLiteSessionStore,
+) -> None:
+    outcome = await run_question_bank(
+        action="record_set",
+        set_name="Equations",
+        questions=[{**_VARIANT_QUESTIONS[0], "topic": "一元一次方程"}],
+        store=store,
+    )
+
+    assert outcome.ok, outcome.error
+    listed = await store.list_notebook_entries(
+        group_ref=f"g:material|{outcome.summary['material_id']}"
+    )
+    assert listed["items"][0]["section_title"] == "一元一次方程"
+
+
+@pytest.mark.asyncio
+async def test_parallel_record_calls_share_one_category(
+    store: SQLiteSessionStore,
+) -> None:
+    """Two recordings that race to create the same category both succeed.
+
+    Production showed the loser failing with "A category ... already exists":
+    the lookup is not atomic, and an agent that files several mistakes at once
+    passes the same category name to every call.
+    """
+    original_create = store.create_category
+
+    async def _create(name: str) -> dict[str, Any]:
+        # Simulate the race: another call created it after our lookup missed.
+        await original_create(name)
+        raise ValueError(f"A category named {name!r} already exists.")
+
+    store.create_category = _create  # type: ignore[method-assign]
+    try:
+        outcome = await run_question_bank(
+            action="record",
+            question="What is 9 × 9?",
+            category="乘法口诀",
+            store=store,
+        )
+    finally:
+        store.create_category = original_create  # type: ignore[method-assign]
+
+    assert outcome.ok, outcome.error
+    assert "Filed under '乘法口诀'" in outcome.text

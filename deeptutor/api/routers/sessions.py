@@ -110,6 +110,10 @@ class SessionReplyLanguageRequest(BaseModel):
 
 class QuizResultItem(BaseModel):
     question_id: str = ""
+    #: What the question tests (the quiz card's own topic). Stored as the
+    #: entry's section label so the bank can group questions by knowledge point
+    #: instead of only by the set they arrived in.
+    topic: str = ""
     question: str = Field(..., min_length=1)
     question_type: str = ""
     options: dict[str, str] | None = None
@@ -804,12 +808,18 @@ async def record_quiz_results(session_id: str, payload: QuizResultsRequest):
         **({"material_id": set_id} if set_id else {}),
         "material_title": set_title,
     }
+    records: list[dict[str, Any]] = []
+    for item in payload.answers:
+        record = {**item.model_dump(), **batch}
+        topic = " ".join(item.topic.split())[:200]
+        if topic:
+            # The knowledge point the question tests, kept per question rather
+            # than per set: one quiz can span several topics.
+            record["section_title"] = topic
+        records.append(record)
     notebook_count = 0
     try:
-        notebook_count = await store.upsert_notebook_entries(
-            session_id,
-            [{**item.model_dump(), **batch} for item in payload.answers],
-        )
+        notebook_count = await store.upsert_notebook_entries(session_id, records)
     except Exception:
         logger.warning(
             "Failed to upsert notebook entries for session %s", session_id, exc_info=True

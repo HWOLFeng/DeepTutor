@@ -6237,5 +6237,15 @@
   "Remove seed {{index}}": "移除第 {{index}} 个种子题",
   "Each seed produces one new question that keeps its knowledge point, type and difficulty but changes the surface.": "每道种子题生成一道新题：知识点、题型和难度档位不变，题面改变。",
   "Variants": "变式题",
-  "seeds": "道种子"
+  "seeds": "道种子",
+  "Accuracy {{percent}}%": "正确率 {{percent}}%",
+  "({{correct}}/{{answered}} correct)": "（{{correct}}/{{answered}} 答对）",
+  "Needs another round": "需要再练一组",
+  "Practice an easier round": "再练一组更简单的",
+  "Practice a harder round": "再练一组更难的",
+  "Practice another round": "再练一组",
+  "Sets that need another round": "需要再练一组的题组",
+  "Make an easier round of variants from these questions: same knowledge points and types, one level down, and name the set after what it practises.": "把这些题降一档再出一组变式：知识点和题型保持一致，难度低一级，并按这组题练什么给它命名。",
+  "Make a harder round of variants from these questions: same knowledge points and types, one level up, and name the set after what it practises.": "把这些题升一档再出一组变式：知识点和题型保持一致，难度高一级，并按这组题练什么给它命名。",
+  "Make another round of variants from these questions: same knowledge points and types, and name the set after what it practises.": "就这些题再出一组变式：知识点和题型保持一致，并按这组题练什么给它命名。"
 }

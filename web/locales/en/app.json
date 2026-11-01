@@ -6237,5 +6237,15 @@
   "Remove seed {{index}}": "Remove seed {{index}}",
   "Each seed produces one new question that keeps its knowledge point, type and difficulty but changes the surface.": "Each seed produces one new question that keeps its knowledge point, type and difficulty but changes the surface.",
   "Variants": "Variants",
-  "seeds": "seeds"
+  "seeds": "seeds",
+  "Accuracy {{percent}}%": "Accuracy {{percent}}%",
+  "({{correct}}/{{answered}} correct)": "({{correct}}/{{answered}} correct)",
+  "Needs another round": "Needs another round",
+  "Practice an easier round": "Practice an easier round",
+  "Practice a harder round": "Practice a harder round",
+  "Practice another round": "Practice another round",
+  "Sets that need another round": "Sets that need another round",
+  "Make an easier round of variants from these questions: same knowledge points and types, one level down, and name the set after what it practises.": "Make an easier round of variants from these questions: same knowledge points and types, one level down, and name the set after what it practises.",
+  "Make a harder round of variants from these questions: same knowledge points and types, one level up, and name the set after what it practises.": "Make a harder round of variants from these questions: same knowledge points and types, one level up, and name the set after what it practises.",
+  "Make another round of variants from these questions: same knowledge points and types, and name the set after what it practises.": "Make another round of variants from these questions: same knowledge points and types, and name the set after what it practises."
 }

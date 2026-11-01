@@ -6782,6 +6782,50 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/question-notebook/sets/attention": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /**
+     * List Sets Needing Practice
+     * @description Sets that should be practised again, worst accuracy first.
+     *
+     *     Backs the "another round" reminder on the practice home. Sets with fewer
+     *     than ``min_answered`` attempts are left out: three questions is not a
+     *     measurement.
+     */
+    readonly get: operations["list_sets_needing_practice_api_question_notebook_sets_attention_get"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/question-notebook/sets/calibration": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /**
+     * Get Set Calibration
+     * @description How one set is going, for the practice page's summary strip.
+     */
+    readonly get: operations["get_set_calibration_api_question_notebook_sets_calibration_get"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/question-notebook/stats": {
     readonly parameters: {
       readonly query?: never;
@@ -15077,6 +15121,11 @@ export interface components {
        */
       readonly question_id: string;
       /**
+       * Question Images
+       * @default []
+       */
+      readonly question_images: readonly components["schemas"]["AnswerImageItem"][];
+      /**
        * Question Type
        * @default
        */
@@ -15149,11 +15198,6 @@ export interface components {
        * @default []
        */
       readonly user_answer_images: readonly components["schemas"]["AnswerImageItem"][];
-      /**
-       * Question Images
-       * @default []
-       */
-      readonly question_images: readonly components["schemas"]["AnswerImageItem"][];
     };
     /** NotebookEntryListResponse */
     readonly NotebookEntryListResponse: {
@@ -15786,6 +15830,11 @@ export interface components {
        */
       readonly question_type: string;
       /**
+       * Topic
+       * @default
+       */
+      readonly topic: string;
+      /**
        * User Answer
        * @default
        */
@@ -16401,6 +16450,55 @@ export interface components {
       readonly task_ids?: readonly string[];
       /** Workspace Id */
       readonly workspace_id: string;
+    };
+    /**
+     * SetCalibration
+     * @description How one practice set is going, and what to generate next.
+     *
+     *     ``label`` is a product judgement over the set's attempts (nothing graded
+     *     yet, too hard, on track, too easy); ``suggested_difficulty`` is what the
+     *     next 举一反三 batch seeded by this set should start at, so a set the learner
+     *     keeps failing produces an easier round instead of the same one again.
+     */
+    readonly SetCalibration: {
+      /**
+       * Accuracy
+       * @default 0
+       */
+      readonly accuracy: number;
+      /**
+       * Answered
+       * @default 0
+       */
+      readonly answered: number;
+      /**
+       * Correct
+       * @default 0
+       */
+      readonly correct: number;
+      /**
+       * Count
+       * @default 0
+       */
+      readonly count: number;
+      /** Group Ref */
+      readonly group_ref: string;
+      /**
+       * Label
+       * @default untouched
+       * @enum {string}
+       */
+      readonly label: "untouched" | "too_hard" | "on_track" | "too_easy";
+      /**
+       * Suggested Difficulty
+       * @default
+       */
+      readonly suggested_difficulty: string;
+      /**
+       * Title
+       * @default
+       */
+      readonly title: string;
     };
     /**
      * SetRoleRequest
@@ -18585,6 +18683,7 @@ export type SchemaSessionStoreCapabilities =
   components["schemas"]["SessionStoreCapabilities"];
 export type SchemaSessionSummary = components["schemas"]["SessionSummary"];
 export type SchemaSessionTaskLinks = components["schemas"]["SessionTaskLinks"];
+export type SchemaSetCalibration = components["schemas"]["SetCalibration"];
 export type SchemaSetRoleRequest = components["schemas"]["SetRoleRequest"];
 export type SchemaSetSessionModeRequest =
   components["schemas"]["SetSessionModeRequest"];
@@ -33732,6 +33831,78 @@ export interface operations {
         };
         content: {
           readonly "application/json": components["schemas"]["PracticeSummary"];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly list_sets_needing_practice_api_question_notebook_sets_attention_get: {
+    readonly parameters: {
+      readonly query?: {
+        readonly limit?: number;
+        readonly min_answered?: number;
+      };
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path?: never;
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": readonly components["schemas"]["SetCalibration"][];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly get_set_calibration_api_question_notebook_sets_calibration_get: {
+    readonly parameters: {
+      readonly query: {
+        /** @description A practice set's group_ref. */
+        readonly group: string;
+      };
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path?: never;
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["SetCalibration"];
         };
       };
       /** @description Validation Error */
