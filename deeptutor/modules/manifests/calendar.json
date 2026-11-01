@@ -12,6 +12,7 @@
     "deeptutor/services/planner",
     "deeptutor/services/cron",
     "deeptutor/api/routers/calendar.py",
+    "deeptutor/api/routers/planner.py",
     "deeptutor/tools/cron_tool.py",
     "deeptutor/tools/planner_tools.py"
   ],
@@ -46,6 +47,17 @@
       },
       "auth": "learning",
       "order": 640
+    },
+    {
+      "reference": "deeptutor.api.routers.planner:router",
+      "options": {
+        "prefix": "/api/planner",
+        "tags": [
+          "planner"
+        ]
+      },
+      "auth": "learning",
+      "order": 641
     }
   ],
   "commands": [],

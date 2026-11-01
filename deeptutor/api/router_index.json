@@ -1,5 +1,5 @@
 {
-  "fingerprint": "6d90ec2c45a1d9f3f152c7577772bcdd05ea8b8f2b22a7dcca57e0d09db0097b",
+  "fingerprint": "7d025e93dd1890eb85081c34987ecfb79c4c6b7798f0b702cda86e6cd6b05402",
   "routers": {
     "deeptutor.api.routers.auth:router": [
       {
@@ -2036,6 +2036,32 @@
         ]
       }
     ],
+    "deeptutor.api.routers.planner:router": [
+      {
+        "path": "/drafts/{draft_id}",
+        "name": "read_draft",
+        "kind": "http",
+        "methods": [
+          "GET"
+        ]
+      },
+      {
+        "path": "/drafts/{draft_id}/items/{item_id}",
+        "name": "patch_item",
+        "kind": "http",
+        "methods": [
+          "PATCH"
+        ]
+      },
+      {
+        "path": "/drafts/{draft_id}/apply",
+        "name": "apply_draft",
+        "kind": "http",
+        "methods": [
+          "POST"
+        ]
+      }
+    ],
     "deeptutor.api.routers.book:router": [
       {
         "path": "/books/health",
@@ -3254,6 +3280,22 @@
         ]
       },
       {
+        "path": "/sets/calibration",
+        "name": "get_set_calibration",
+        "kind": "http",
+        "methods": [
+          "GET"
+        ]
+      },
+      {
+        "path": "/sets/attention",
+        "name": "list_sets_needing_practice",
+        "kind": "http",
+        "methods": [
+          "GET"
+        ]
+      },
+      {
         "path": "/stats",
         "name": "question_bank_stats",
         "kind": "http",
@@ -3365,6 +3407,22 @@
         "kind": "http",
         "methods": [
           "POST"
+        ]
+      },
+      {
+        "path": "/import/jobs",
+        "name": "start_import_job",
+        "kind": "http",
+        "methods": [
+          "POST"
+        ]
+      },
+      {
+        "path": "/import/jobs/{job_id}",
+        "name": "import_job",
+        "kind": "http",
+        "methods": [
+          "GET"
         ]
       },
       {
