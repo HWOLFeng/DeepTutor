@@ -1446,6 +1446,10 @@ class QuestionBankTool(_PromptHintsMixin, BaseTool):
                 "action='record' to save one wrong question from this "
                 "conversation into the bank the learner reviews (add "
                 "`category` to file it in the same call); "
+                "action='record_set' to file a batch of NEW questions you just "
+                "generated (e.g. 举一反三 variants of the questions the learner "
+                "picked) as one named practice set the learner can start from "
+                "the learning sidebar, unanswered; "
                 "action='organize' to file entry_ids into a category by name "
                 "(the category is created if it does not exist); "
                 "action='unfile' to remove them; "
@@ -1457,9 +1461,55 @@ class QuestionBankTool(_PromptHintsMixin, BaseTool):
                     type="string",
                     description=(
                         "'overview' (counts + categories, needs nothing else), "
-                        "'list', 'record', 'organize', 'unfile', or 'bookmark'."
+                        "'list', 'record', 'record_set', 'organize', 'unfile', "
+                        "or 'bookmark'."
                     ),
                     enum=list(QB_ACTIONS),
+                ),
+                ToolParameter(
+                    name="set",
+                    type="string",
+                    description=(
+                        "For action='record_set' (required) — the name of the "
+                        "batch, and what the learner sees in the learning "
+                        "sidebar: say what it practises, e.g. "
+                        "\"二次函数 · 变式 5 题\" or \"Fractions review · "
+                        "2026-11-01\". Optional for 'record' to file that one "
+                        "question under the same name. The name is a label, not "
+                        "an identity: two batches with the same name are still "
+                        "two sets when they come from different origins."
+                    ),
+                    required=False,
+                ),
+                ToolParameter(
+                    name="questions",
+                    type="array",
+                    description=(
+                        "For action='record_set'. The new questions, each "
+                        "{\"question\", \"question_type\", \"options\", "
+                        "\"correct_answer\", \"explanation\", \"difficulty\"}. "
+                        "They are saved unanswered — the learner practises them "
+                        "later — so never mark them wrong or copy the seed "
+                        "questions' answers."
+                    ),
+                    items={
+                        "type": "object",
+                        "properties": {
+                            "question": {"type": "string"},
+                            "question_type": {"type": "string"},
+                            "options": {
+                                "type": "object",
+                                "additionalProperties": {"type": "string"},
+                            },
+                            "correct_answer": {"type": "string"},
+                            "explanation": {"type": "string"},
+                            "difficulty": {"type": "string"},
+                        },
+                        "required": ["question", "correct_answer"],
+                    },
+                    min_items=1,
+                    max_items=30,
+                    required=False,
                 ),
                 ToolParameter(
                     name="question",
@@ -1575,6 +1625,8 @@ class QuestionBankTool(_PromptHintsMixin, BaseTool):
             is_correct=bool(kwargs.get("is_correct", False)),
             bookmarked=bool(kwargs.get("bookmarked", True)),
             limit=int(kwargs.get("limit") or 20),
+            set_name=str(kwargs.get("set") or ""),
+            questions=kwargs.get("questions"),
         )
         if not outcome.ok:
             return ToolResult(content=outcome.error, success=False)

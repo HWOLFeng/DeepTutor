@@ -599,3 +599,61 @@ def test_assessment_v2_fields_round_trip_and_filters(store: SQLiteSessionStore) 
         )
         after = client.get("/api/question-notebook/entries").json()
         assert after["total"] == 3
+
+
+def test_quiz_results_file_the_turn_as_a_named_practice_set(store: SQLiteSessionStore) -> None:
+    """A quiz turn is one set the sidebar can list *and open*.
+
+    Regression cover for two reports: a set generated in a conversation could
+    not be opened from the sidebar, and generated sets had no name of their own
+    (they all collapsed into one anonymous row).
+    """
+    session = asyncio.run(store.create_session(title="Vectors"))
+    sid = session["id"]
+
+    with TestClient(_build_app(store)) as client:
+        resp = client.post(
+            f"/api/sessions/{sid}/quiz-results",
+            json={
+                "answers": _quiz_answers(),
+                "turn_id": "turn_A",
+                "set_title": "  Projection ·   variants ",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["set"] == {
+            "id": "quiz:turn_A",
+            "title": "Projection · variants",
+        }
+
+        rows = asyncio.run(store.list_notebook_navigation())
+        assert len(rows) == 1
+        assert rows[0]["title"] == "Projection · variants"
+        assert rows[0]["count"] == 2
+        assert rows[0]["material_id"] == "quiz:turn_A"
+
+        # Opening the row is a real request, not the unfiltered bank.
+        opened = client.get(
+            "/api/question-notebook/entries", params={"group": rows[0]["group_ref"]}
+        )
+        assert opened.status_code == 200
+        assert opened.json()["total"] == 2
+
+        # A retry that carries no name keeps the one already stored.
+        retry = _quiz_answers()
+        retry[0]["user_answer"] = "B"
+        retry[0]["is_correct"] = True
+        client.post(
+            f"/api/sessions/{sid}/quiz-results",
+            json={"answers": retry, "turn_id": "turn_A"},
+        )
+        assert asyncio.run(store.list_notebook_navigation())[0]["title"] == "Projection · variants"
+
+        # A second quiz in the same conversation is its own set.
+        client.post(
+            f"/api/sessions/{sid}/quiz-results",
+            json={"answers": _quiz_answers(), "turn_id": "turn_B", "set_title": "Dot products"},
+        )
+        rows = asyncio.run(store.list_notebook_navigation())
+        assert sorted(row["title"] for row in rows) == ["Dot products", "Projection · variants"]
+        assert sorted(row["count"] for row in rows) == [2, 2]

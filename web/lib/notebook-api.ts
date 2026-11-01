@@ -316,6 +316,11 @@ export interface NotebookEntryFilter {
   is_correct?: boolean;
   source?: AssessmentSource;
   material_id?: string;
+  /**
+   * One practice set, addressed by a learning-sidebar row's `group_ref`.
+   * Also accepts a legacy bare material id.
+   */
+  group?: string;
   section_id?: string;
   assessment_type?: AssessmentType;
   result?: AssessmentResult;
@@ -343,6 +348,7 @@ export async function listNotebookEntries(
     params.set("is_correct", String(filter.is_correct));
   if (filter.source) params.set("source", filter.source);
   if (filter.material_id) params.set("material_id", filter.material_id);
+  if (filter.group) params.set("group", filter.group);
   if (filter.section_id) params.set("section_id", filter.section_id);
   if (filter.assessment_type)
     params.set("assessment_type", filter.assessment_type);

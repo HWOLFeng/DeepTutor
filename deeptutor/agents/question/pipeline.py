@@ -1370,6 +1370,11 @@ class QuestionPipeline:
                 "template_count": len(plan.templates),
                 "completed": successful,
                 "failed": len(qa_pairs) - successful,
+                # The set's name, taken from the topics the planner chose for
+                # it. The client sends it back when the answers are filed, so
+                # the practice set the sidebar lists is named after what the
+                # quiz is about instead of the conversation it happened in.
+                "title": self._set_title(plan),
                 "templates": [self._template_to_dict(t) for t in plan.templates],
                 "results": results,
                 "analysis": plan.analysis,
@@ -1377,6 +1382,28 @@ class QuestionPipeline:
             "mode": "mimic" if is_mimic else "custom",
         }
         return payload
+
+    def _set_title(self, plan: QuizPlan) -> str:
+        """A short name for this quiz, built from its templates' topics.
+
+        Topics are the planner's own one-line descriptions of what each
+        question tests, so two or three of them name the batch far better than
+        the learner's prompt ("出5道题") ever could. Duplicates collapse, order
+        is preserved, and the result is capped so a sidebar row stays readable.
+        """
+        separator = "、" if str(self.language or "").lower().startswith("zh") else "; "
+        seen: set[str] = set()
+        topics: list[str] = []
+        for template in plan.templates:
+            topic = " ".join(str(template.topic or "").split())
+            if not topic or topic.casefold() in seen:
+                continue
+            seen.add(topic.casefold())
+            topics.append(topic)
+            if len(topics) == 3:
+                break
+        title = separator.join(topics)
+        return title[:120]
 
     # ------------------------------------------------------------------
     # Quiz payload parsing / validation / normalization

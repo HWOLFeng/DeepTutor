@@ -335,6 +335,12 @@ async def list_entries(
     is_correct: bool | None = Query(default=None),
     source: AssessmentSource | Literal[""] = Query(default=""),
     material_id: str = Query(default="", max_length=500),
+    group: str = Query(
+        default="",
+        max_length=512,
+        description="One practice set, addressed by the `group_ref` of a "
+        "learning-sidebar row. Also accepts a legacy bare material id.",
+    ),
     section_id: str = Query(default="", max_length=500),
     assessment_type: str = Query(default="", pattern="^(quiz|focus_check|qualitative|review)?$"),
     result: str = Query(default="", pattern="^(correct|incorrect|partial|ungraded)?$"),
@@ -356,6 +362,7 @@ async def list_entries(
         is_correct=is_correct,
         source=source,
         material_id=material_id,
+        group_ref=group,
         section_id=section_id,
         assessment_type=assessment_type,
         result=result,

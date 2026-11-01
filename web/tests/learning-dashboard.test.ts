@@ -74,13 +74,14 @@ test('recent learning mixes four sources by epoch seconds and keeps six', () => 
   assert.equal(recent[4].title, 'Settings')
 })
 
-test('an imported practice group opens the bank filtered to its file', () => {
+test('a practice set opens as that set, whatever produced it', () => {
   const withPractice: LearningSources = {
     ...sources,
     practice: [
       {
         id: 9,
-        question: '三年级语文修改病句.docx',
+        group_ref: 'g:material|import:abc',
+        title: '三年级语文修改病句.docx',
         count: 4,
         material_id: 'import:abc',
         created_at: 5,
@@ -90,10 +91,68 @@ test('an imported practice group opens the bank filtered to its file', () => {
   }
   const row = allLearningActivity(withPractice).find(item => item.kind === 'practice')
   assert.ok(row)
+  assert.equal(row.title, '三年级语文修改病句.docx')
   const link = new URL(row.href, 'http://workspace.local')
   assert.equal(link.pathname, '/learning/practice')
-  assert.equal(link.searchParams.get('group'), 'import:abc')
+  assert.equal(link.searchParams.get('group'), 'g:material|import:abc')
   assert.equal(link.searchParams.get('file'), '三年级语文修改病句.docx')
+})
+
+test('a generated quiz set opens like an imported file, not the practice hub', () => {
+  const withPractice: LearningSources = {
+    ...sources,
+    practice: [
+      {
+        id: 21,
+        group_ref: 'g:material|quiz:turn_A',
+        title: 'Projection · variants',
+        count: 5,
+        material_id: 'quiz:turn_A',
+        created_at: 5,
+        updated_at: 6,
+      },
+    ],
+  }
+  const row = allLearningActivity(withPractice).find(item => item.kind === 'practice')
+  assert.ok(row)
+  const link = new URL(row.href, 'http://workspace.local')
+  assert.equal(link.searchParams.get('group'), 'g:material|quiz:turn_A')
+  assert.equal(link.searchParams.get('file'), 'Projection · variants')
+})
+
+test('two sets with the same name stay two rows', () => {
+  const withPractice: LearningSources = {
+    ...sources,
+    practice: [
+      {
+        id: 1,
+        group_ref: 'g:material|partner:p1:a',
+        title: 'Study Buddy',
+        count: 2,
+        material_id: 'partner:p1:a',
+        created_at: 5,
+        updated_at: 6,
+      },
+      {
+        id: 2,
+        group_ref: 'g:material|partner:p2:b',
+        title: 'Study Buddy',
+        count: 3,
+        material_id: 'partner:p2:b',
+        created_at: 7,
+        updated_at: 8,
+      },
+    ],
+  }
+  const rows = allLearningActivity(withPractice).filter(item => item.kind === 'practice')
+  assert.deepEqual(
+    rows.map(row => row.key),
+    ['practice::g:material|partner:p2:b', 'practice::g:material|partner:p1:a']
+  )
+  assert.deepEqual(
+    rows.map(row => row.title),
+    ['Study Buddy', 'Study Buddy']
+  )
 })
 
 test('a single imported question still opens that question', () => {
@@ -102,7 +161,8 @@ test('a single imported question still opens that question', () => {
     practice: [
       {
         id: 12,
-        question: '错题.pdf',
+        group_ref: 'g:material|import:def',
+        title: '错题.pdf',
         count: 1,
         material_id: 'import:def',
         created_at: 5,

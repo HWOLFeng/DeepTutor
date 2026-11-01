@@ -15796,6 +15796,12 @@ export interface components {
       /** Answers */
       readonly answers?: readonly components["schemas"]["QuizResultItem"][];
       /**
+       * Set Title
+       * @description Name of the set these questions belong to — the topics the quiz was generated for. The entries are filed as one practice set (material `quiz:<turn_id>`), which is what the learning sidebar lists and what its row opens. Blank keeps the stored name.
+       * @default
+       */
+      readonly set_title: string;
+      /**
        * Turn Id
        * @default
        */
@@ -33018,6 +33024,8 @@ export interface operations {
         readonly assessment_type?: string;
         readonly bookmarked?: boolean | null;
         readonly category_id?: number | null;
+        /** @description One practice set, addressed by the `group_ref` of a learning-sidebar row. Also accepts a legacy bare material id. */
+        readonly group?: string;
         readonly is_correct?: boolean | null;
         readonly knowledge_point_id?: string;
         readonly limit?: number;

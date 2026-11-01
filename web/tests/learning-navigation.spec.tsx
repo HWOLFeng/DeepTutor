@@ -10,8 +10,8 @@ const mastery = vi.hoisted(() => ({ topics: [] as unknown[] }))
 vi.mock('@/hooks/useLearningIndex', () => ({ useLearningIndex: () => ({
   loading: false, failed: [], retry: vi.fn(), sources: {
     books: [], mastery: mastery.topics, reading: [], watching: [], practice: [
-      { id: 1, question: 'Older material, recently studied', created_at: 100, updated_at: 900, content_workspace_id: 'physics' },
-      { id: 2, question: 'Newly created material', created_at: 800, updated_at: 800, content_workspace_id: '' },
+      { id: 1, group_ref: 'g:material|import:old', title: 'Older material, recently studied', count: 1, material_id: 'import:old', created_at: 100, updated_at: 900, content_workspace_id: 'physics' },
+      { id: 2, group_ref: 'g:material|import:new', title: 'Newly created material', count: 1, material_id: 'import:new', created_at: 800, updated_at: 800, content_workspace_id: '' },
     ],
   },
 }) }))

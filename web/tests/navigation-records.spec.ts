@@ -24,14 +24,18 @@ it('retains duplicate question IDs from distinct workspaces and preserves exact 
     practice: [
       {
         id: 1,
-        question: 'Original question',
+        group_ref: 'g:turn|session-a|turn_1',
+        title: 'Original question',
+        count: 1,
         updated_at: 20,
         created_at: 1,
         content_workspace_id: '',
       },
       {
         id: 1,
-        question: 'Workspace question',
+        group_ref: 'g:turn|session-b|turn_1',
+        title: 'Workspace question',
+        count: 1,
         updated_at: 30,
         created_at: 2,
         content_workspace_id: 'ws_other',
@@ -44,7 +48,7 @@ it('retains duplicate question IDs from distinct workspaces and preserves exact 
     '/learning/practice?question=1&dt_workspace=ws_other',
     '/learning/practice?question=1&dt_workspace=',
   ])
-  expect(sources.practice?.[0].question).toBe('Original question')
+  expect(sources.practice?.[0].title).toBe('Original question')
 })
 
 it('encodes partner identities and session keys independently without rewriting them', () => {

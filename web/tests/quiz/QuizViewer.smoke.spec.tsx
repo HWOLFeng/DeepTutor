@@ -87,6 +87,7 @@ const shortAnswerQuestion: QuizQuestion = {
 function renderViewer(questions: QuizQuestion[], props: {
   sessionId?: string | null;
   turnId?: string | null;
+  setTitle?: string;
 } = {}) {
   return render(
     <StrictMode>
@@ -94,6 +95,7 @@ function renderViewer(questions: QuizQuestion[], props: {
         questions={questions}
         sessionId={props.sessionId ?? null}
         turnId={props.turnId ?? null}
+        setTitle={props.setTitle ?? ""}
         language="en"
       />
     </StrictMode>,
@@ -265,9 +267,10 @@ describe("QuizViewer smoke", () => {
     await waitFor(() => {
       expect(mocks.recordQuizResults).toHaveBeenCalledTimes(1);
     });
-    const [sessionId, results, turnId] = mocks.recordQuizResults.mock.calls[0];
+    const [sessionId, results, turnId, setTitle] = mocks.recordQuizResults.mock.calls[0];
     expect(sessionId).toBe("session-1");
     expect(turnId).toBe("turn-1");
+    expect(setTitle).toBe("");
     expect(results).toEqual([
       expect.objectContaining({
         question_id: "q_1",
@@ -283,6 +286,30 @@ describe("QuizViewer smoke", () => {
         is_correct: true,
       }),
     ]);
+  });
+
+  it("files answered questions under the quiz's own named set", async () => {
+    const user = userEvent.setup();
+    // The generator names the quiz after its topics. That name, plus the turn
+    // id, is what makes the answered questions one practice set the learning
+    // sidebar can list and reopen — not an anonymous pile of rows.
+    renderViewer([choiceQuestion], {
+      sessionId: "session-1",
+      turnId: "turn-1",
+      setTitle: "Projection · variants",
+    });
+
+    await user.click(screen.getByRole("button", { name: /Paris/ }));
+    await user.click(screen.getByRole("button", { name: /Check Answer/ }));
+
+    await waitFor(() => {
+      expect(mocks.upsertNotebookEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          material_id: "quiz:turn-1",
+          material_title: "Projection · variants",
+        }),
+      );
+    });
   });
 
   it("stays local-only without a turn id: no notebook or result-report calls", async () => {

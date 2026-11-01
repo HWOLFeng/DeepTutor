@@ -19,7 +19,8 @@ import { PracticeInsights } from "./PracticeInsights";
 export function PracticePage({ mode = "practice" }: { mode?: "practice" | "library" }) {
   const { t } = useTranslation();
   const search = useSearchParams();
-  // A grouped sidebar node is a set of questions: start practicing it rather
+  // A grouped sidebar node is a practice set — an imported file, a generated
+  // quiz, a partner's recorded mistakes. It starts practising that set rather
   // than opening the hub's analytics.
   const group = search.get("group");
   if (mode === "practice" && group)
@@ -33,8 +34,11 @@ export function PracticePage({ mode = "practice" }: { mode?: "practice" | "libra
       >
         <PracticeGroupSession
           key={group}
-          materialId={group}
-          file={search.get("file") || ""}
+          groupRef={group}
+          // The generic bucket carries no name of its own; every named set
+          // travels with its title so the session header says what is being
+          // practised.
+          title={search.get("file") || (group === "g:other" ? t("Other questions") : "")}
         />
       </LearningShell>
     );

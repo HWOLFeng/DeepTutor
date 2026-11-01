@@ -207,6 +207,23 @@ export function extractQuizQuestions(
   );
 }
 
+/**
+ * The name this quiz was generated under — the planner's own topics, joined.
+ *
+ * The questions of one turn are filed as one practice set, and the sidebar
+ * labels that set from what the quiz is *about* rather than from the chat it
+ * happened in. Empty when the envelope predates the field (older turns) or a
+ * mimic-mode paper produced no topics; the server then falls back to the
+ * conversation title.
+ */
+export function extractQuizSetTitle(
+  resultMetadata: Record<string, unknown> | undefined,
+): string {
+  const summary = resultMetadata?.summary as Record<string, unknown> | undefined;
+  const raw = summary?.title;
+  return typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+}
+
 export interface QuizFollowupExtras {
   /** Filenames of the learner's image answers (bytes ride on first msg). */
   userAnswerImageFilenames?: string[] | null;

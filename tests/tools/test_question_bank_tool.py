@@ -207,7 +207,13 @@ async def test_record_files_a_partner_mistake_without_a_placeholder_session(
     assert outcome.summary["session_id"] == ""
     assert outcome.summary["origin_type"] == "external_import"
     origin_ref = outcome.summary["origin_ref"]
-    assert outcome.summary["source"] == "partner_chat"
+    # Outside a partner turn the recording belongs to the product chat, and the
+    # set it lands in is the day it was taken — never a phantom "Partner
+    # notebook" that every unrelated chat would share.
+    assert outcome.summary["source"] == "deep_question"
+    assert origin_ref == "chat:self"
+    assert outcome.summary["material_id"].startswith("chat:self:")
+    assert outcome.summary["set_title"].startswith("Mistakes · ")
     stats = await store.question_bank_stats()
     assert stats["total"] == 1
     entry = await store.find_notebook_entry_by_origin(
@@ -215,11 +221,33 @@ async def test_record_files_a_partner_mistake_without_a_placeholder_session(
     )
     assert entry is not None
     assert entry["session_id"] == ""
-    assert entry["source"] == "partner_chat"
+    assert entry["source"] == "deep_question"
+    assert entry["material_id"] == outcome.summary["material_id"]
+    assert entry["material_title"] == outcome.summary["set_title"]
     assert entry["question"] == "What is 7 × 8?"
     assert await store.list_sessions() == []
     # The optional category was created and the entry filed into it.
     assert "Filed under 'Multiplication drills'" in outcome.text
+
+
+@pytest.mark.asyncio
+async def test_partner_mistakes_are_named_after_the_partner_and_keyed_by_the_pairing(
+    store: SQLiteSessionStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "deeptutor.services.partners.interaction.get_partner_turn_context",
+        lambda: _FakePartnerContext(shared_memory=None),
+    )
+
+    outcome = await run_question_bank(action="record", question="7 × 8?", store=store)
+
+    assert outcome.ok, outcome.error
+    assert outcome.summary["origin_ref"] == "partner:p1:user-42"
+    assert outcome.summary["material_id"] == "partner:p1:user-42"
+    assert outcome.summary["set_title"] == "Study Buddy"
+    assert outcome.summary["source"] == "partner_chat"
+    rows = await store.list_notebook_navigation()
+    assert [(row["title"], row["count"]) for row in rows] == [("Study Buddy", 1)]
 
 
 @pytest.mark.asyncio
@@ -296,3 +324,107 @@ async def test_partner_turns_mount_the_bank_even_when_it_is_empty(
 async def test_ensure_notebook_session_is_idempotent(store: SQLiteSessionStore) -> None:
     assert await store.ensure_notebook_session("partner-notebook:p1:admin", "T (Partner)") is True
     assert await store.ensure_notebook_session("partner-notebook:p1:admin", "T (Partner)") is False
+
+
+# ── record_set: 举一反三 batches become one named, unanswered set ─────────
+
+_VARIANT_QUESTIONS = [
+    {
+        "question": "Solve 3x + 5 = 20.",
+        "question_type": "single_choice",
+        "options": {"A": "5", "B": "15", "C": "8", "D": "25"},
+        "correct_answer": "A",
+        "explanation": "3x = 15, so x = 5.",
+        "difficulty": "easy",
+    },
+    {
+        "question": "Solve 4x - 7 = 21.",
+        "question_type": "short_answer",
+        "correct_answer": "x = 7",
+        "explanation": "4x = 28, so x = 7.",
+        "difficulty": "medium",
+    },
+]
+
+
+@pytest.mark.asyncio
+async def test_record_set_files_one_named_unanswered_set(store: SQLiteSessionStore) -> None:
+    outcome = await run_question_bank(
+        action="record_set",
+        set_name="One-step equations · variants",
+        questions=_VARIANT_QUESTIONS,
+        store=store,
+    )
+
+    assert outcome.ok, outcome.error
+    assert outcome.summary["saved"] == 2
+    assert outcome.summary["set_title"] == "One-step equations · variants"
+    assert outcome.summary["material_id"].startswith("set:")
+    listing = await store.list_notebook_entries(
+        group_ref=f"g:material|{outcome.summary['material_id']}"
+    )
+    assert listing["total"] == 2
+    assert {item["result"] for item in listing["items"]} == {"ungraded"}
+    # A variant the learner has not tried is not a mistake.
+    assert (await store.question_bank_stats())["wrong"] == 0
+
+    rows = await store.list_notebook_navigation()
+    assert len(rows) == 1
+    assert rows[0]["title"] == "One-step equations · variants"
+    assert rows[0]["count"] == 2
+    assert rows[0]["group_ref"] == f"g:material|{outcome.summary['material_id']}"
+
+
+@pytest.mark.asyncio
+async def test_record_set_is_idempotent_for_the_same_named_batch(
+    store: SQLiteSessionStore,
+) -> None:
+    first = await run_question_bank(
+        action="record_set", set_name="One-step equations · variants", questions=_VARIANT_QUESTIONS, store=store
+    )
+    again = await run_question_bank(
+        action="record_set", set_name="One-step equations · variants", questions=_VARIANT_QUESTIONS, store=store
+    )
+
+    assert first.summary["material_id"] == again.summary["material_id"]
+    assert (await store.question_bank_stats())["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_different_named_batch_stays_its_own_set(store: SQLiteSessionStore) -> None:
+    first = await run_question_bank(
+        action="record_set", set_name="One-step equations", questions=_VARIANT_QUESTIONS, store=store
+    )
+    second = await run_question_bank(
+        action="record_set", set_name="One-step equations · harder", questions=_VARIANT_QUESTIONS, store=store
+    )
+
+    assert first.summary["material_id"] != second.summary["material_id"]
+    assert len(await store.list_notebook_navigation()) == 2
+
+
+@pytest.mark.asyncio
+async def test_record_set_requires_a_name_that_says_what_it_practises(
+    store: SQLiteSessionStore,
+) -> None:
+    outcome = await run_question_bank(action="record_set", questions=_VARIANT_QUESTIONS, store=store)
+
+    assert not outcome.ok
+    assert "`set` is required" in outcome.error
+    assert (await store.question_bank_stats())["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_record_set_reports_junk_questions_instead_of_saving_a_short_set(
+    store: SQLiteSessionStore,
+) -> None:
+    outcome = await run_question_bank(
+        action="record_set",
+        set_name="Mixed batch",
+        questions=[{"question": "  "}, {"question": "Valid?", "correct_answer": "yes"}],
+        store=store,
+    )
+
+    assert outcome.ok, outcome.error
+    assert outcome.summary["saved"] == 1
+    assert "Skipped" in outcome.text

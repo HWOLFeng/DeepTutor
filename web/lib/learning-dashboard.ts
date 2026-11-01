@@ -14,11 +14,25 @@ import { sessionWorkspaceId } from '@/lib/session-api'
 
 export type LearningKind = 'books' | 'mastery' | 'reading' | 'watching' | 'practice'
 export type Located<T> = T & { content_workspace_id?: string; content_workspace_name?: string }
+/**
+ * One practice set as the learning index reports it: `group_ref` is its
+ * durable identity (a material id, an origin ref or a conversation turn),
+ * `title` is only a label derived from the batch.
+ */
+export interface PracticeNavigationEntry {
+  id: number
+  group_ref: string
+  title: string
+  count?: number
+  material_id?: string
+  created_at: number
+  updated_at: number
+}
 export interface LearningSources {
   books: Located<Book>[]
   mastery: Located<MasteryTopic>[]
   reading: Located<ReadingWorkspace>[]
-  practice?: Located<{ id: number; question: string; count?: number; material_id?: string; created_at: number; updated_at: number }>[]
+  practice?: Located<PracticeNavigationEntry>[]
   watching: SessionSummary[]
 }
 export interface LearningActivity {
@@ -42,25 +56,23 @@ export function allLearningActivity(sources: LearningSources): LearningActivity[
   return [
     ...(sources.practice ?? []).map(entry => {
       const count = Math.max(1, Number(entry.count) || 1)
-      // One imported file is one navigation row; a single question still
-      // opens that exact question, a group opens the Question Bank filtered
-      // to its file instead of the unfiltered hub (which looks like a no-op
-      // when the learner is already there).
-      // A grouped imported file is a practice set: clicking it starts that
-      // set. Only the anonymous "other questions" group opens the hub.
+      // One set is one navigation row. A set with a single question still
+      // opens that exact question; any larger set opens the set itself, which
+      // starts practising it — the same contract for an imported file, a
+      // generated quiz and a partner's recorded mistakes. The row is keyed by
+      // the set's identity, never by its name, so two sets that happen to be
+      // called the same thing stay two rows.
       const query =
         count > 1
-          ? entry.material_id
-            ? new URLSearchParams({
-                group: entry.material_id,
-                ...(entry.question ? { file: entry.question } : {}),
-              })
-            : new URLSearchParams()
+          ? new URLSearchParams({
+              group: entry.group_ref,
+              ...(entry.title ? { file: entry.title } : {}),
+            })
           : new URLSearchParams({ question: String(entry.id) })
       return {
-        key: `practice:${entry.content_workspace_id || ''}:${entry.id}`,
+        key: `practice:${entry.content_workspace_id || ''}:${entry.group_ref || entry.id}`,
         kind: 'practice' as const,
-        title: entry.question,
+        title: entry.title,
         href: scopedUrl(practiceRoute(query, ''), entry.content_workspace_id || ''),
         updatedAt: entry.updated_at || entry.created_at,
         createdAt: entry.created_at || entry.updated_at,

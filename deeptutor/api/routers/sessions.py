@@ -133,6 +133,16 @@ class QuizResultItem(BaseModel):
 class QuizResultsRequest(BaseModel):
     answers: list[QuizResultItem] = Field(default_factory=list)
     turn_id: str = ""
+    set_title: str = Field(
+        default="",
+        max_length=120,
+        description=(
+            "Name of the set these questions belong to — the topics the quiz "
+            "was generated for. The entries are filed as one practice set "
+            "(material `quiz:<turn_id>`), which is what the learning sidebar "
+            "lists and what its row opens. Blank keeps the stored name."
+        ),
+    )
 
 
 def _format_quiz_results_message(answers: list[QuizResultItem]) -> str:
@@ -782,11 +792,23 @@ async def record_quiz_results(session_id: str, payload: QuizResultsRequest):
         content=content,
         capability="deep_question",
     )
+    # One quiz turn is one practice set. The turn id is already the notebook's
+    # scoping key (question ids repeat across quizzes), so it is also the right
+    # identity for the set: the sidebar lists it as one row, and its link
+    # filters the bank back to exactly these entries. Without a turn id the
+    # entries stay in the legacy bucket rather than merging into another set.
+    set_id = f"quiz:{payload.turn_id.strip()}" if payload.turn_id.strip() else ""
+    set_title = " ".join(payload.set_title.split())[:120]
+    batch = {
+        "turn_id": payload.turn_id,
+        **({"material_id": set_id} if set_id else {}),
+        "material_title": set_title,
+    }
     notebook_count = 0
     try:
         notebook_count = await store.upsert_notebook_entries(
             session_id,
-            [{**item.model_dump(), "turn_id": payload.turn_id} for item in payload.answers],
+            [{**item.model_dump(), **batch} for item in payload.answers],
         )
     except Exception:
         logger.warning(
@@ -797,5 +819,6 @@ async def record_quiz_results(session_id: str, payload: QuizResultsRequest):
         "session_id": session_id,
         "answer_count": len(payload.answers),
         "notebook_count": notebook_count,
+        "set": {"id": set_id, "title": set_title} if set_id else None,
         "content": content,
     }

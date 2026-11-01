@@ -79,6 +79,13 @@ interface QuizViewerProps {
    * read or written, so state can't leak across quizzes.
    */
   turnId?: string | null;
+  /**
+   * What this quiz is about, from the generator's own topics. The answered
+   * questions are filed as one practice set under this name, so the learning
+   * sidebar can list it and open it later; blank falls back to the
+   * conversation title server-side.
+   */
+  setTitle?: string;
   language?: string;
 }
 
@@ -192,6 +199,7 @@ export default function QuizViewer({
   questions,
   sessionId,
   turnId,
+  setTitle = "",
   language = "en",
 }: QuizViewerProps) {
   const { t } = useTranslation();
@@ -448,7 +456,7 @@ export default function QuizViewer({
     const signature = JSON.stringify(submittedResults);
     if (!signature || signature === lastReportedSignatureRef.current) return;
     lastReportedSignatureRef.current = signature;
-    void recordQuizResults(sessionId, submittedResults, turnId)
+    void recordQuizResults(sessionId, submittedResults, turnId, setTitle)
       .then(() => {
         questions.forEach((question, i) => {
           void refreshEntryId(getQuestionKey(question, i), sessionId);
@@ -465,6 +473,7 @@ export default function QuizViewer({
     questions,
     refreshEntryId,
     sessionId,
+    setTitle,
     submittedResults,
     total,
     turnId,
@@ -489,6 +498,11 @@ export default function QuizViewer({
         const entry = await upsertNotebookEntry({
           session_id: sessionId,
           turn_id: turnId,
+          // Every answered question of this quiz joins its practice set from
+          // the first answer, so a half-finished quiz is still one named row
+          // in the sidebar instead of dropping into the legacy bucket.
+          material_id: `quiz:${turnId}`,
+          material_title: setTitle,
           question_id: question.question_id,
           question: question.question,
           question_type: question.question_type,
@@ -532,7 +546,7 @@ export default function QuizViewer({
         /* best-effort */
       }
     },
-    [sessionId, turnId],
+    [sessionId, setTitle, turnId],
   );
 
   const handleSubmit = () => {

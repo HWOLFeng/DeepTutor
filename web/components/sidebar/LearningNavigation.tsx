@@ -198,7 +198,12 @@ function RecordNode({
           className="dt-record-node-link"
         >
           <span className="min-w-0 flex-1 truncate">
-            {record.title || t(learningSurface(record.kind).title)}
+            {record.title ||
+              t(
+                record.kind === 'practice'
+                  ? 'Other questions'
+                  : learningSurface(record.kind).title,
+              )}
           </span>
           {record.count ? (
             <span

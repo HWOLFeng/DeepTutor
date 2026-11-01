@@ -489,13 +489,23 @@ export async function recordQuizResults(
   sessionId: string,
   answers: QuizResultItem[],
   turnId?: string | null,
+  /**
+   * The quiz's own topic name. The server files this turn's answers as one
+   * practice set (`quiz:<turn_id>`) labelled with it, which is what the
+   * learning sidebar lists and opens.
+   */
+  setTitle?: string,
 ): Promise<void> {
   const response = await apiFetch(
     apiUrl(`/api/sessions/${sessionId}/quiz-results`),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answers, turn_id: turnId || "" }),
+      body: JSON.stringify({
+        answers,
+        turn_id: turnId || "",
+        set_title: (setTitle || "").trim(),
+      }),
     },
   );
   await expectJson<{ recorded: boolean }>(response);

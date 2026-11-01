@@ -8,13 +8,20 @@ import { practiceRoute } from "@/lib/learning-routes";
 import { listNotebookEntries } from "@/lib/notebook-api";
 import { PracticeSession } from "./PracticeSession";
 
-/** One imported file's questions as a set: the sidebar's group node starts it. */
+/**
+ * One practice set as a session: the sidebar's row starts it.
+ *
+ * The set is addressed by its `group_ref` (an imported file, a generated quiz
+ * turn, a partner's recorded mistakes), so every kind of set behaves the same
+ * way — which is what the learner expects from one click on a row that says
+ * "12 questions".
+ */
 export function PracticeGroupSession({
-  materialId,
-  file,
+  groupRef,
+  title = "",
 }: {
-  materialId: string;
-  file?: string;
+  groupRef: string;
+  title?: string;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -28,7 +35,7 @@ export function PracticeGroupSession({
       const collected: number[] = [];
       for (let offset = 0; collected.length < 500; offset += 200) {
         const page = await listNotebookEntries({
-          material_id: materialId,
+          group: groupRef,
           limit: 200,
           offset,
           sort: "oldest",
@@ -44,7 +51,7 @@ export function PracticeGroupSession({
     return () => {
       alive = false;
     };
-  }, [materialId]);
+  }, [groupRef]);
 
   const back = () => router.replace(practiceRoute(new URLSearchParams(), ""));
 
@@ -86,7 +93,7 @@ export function PracticeGroupSession({
   return (
     <PracticeSession
       ids={ids}
-      title={file}
+      title={title}
       onClose={back}
       backLabel={t("Back to practice")}
     />

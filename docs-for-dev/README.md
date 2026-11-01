@@ -58,6 +58,9 @@ installation before deciding to reinstall it.
 - [Windows setup](WINDOWS_SETUP.md) *(中文)*: WSL2 + Ubuntu + Docker Engine for
   a Linux-parity dev environment, plus image build/deploy from a Windows host.
 - [Practice](PRACTICE.md): question imports, review records and scheduling.
+- [Practice sets and 举一反三](PRACTICE_SETS.md) *(中文)*: how a batch of
+  questions gets one durable identity and one honest name, and the product
+  contract for generating variant sets from questions the learner picked.
 - [Practice import rework](PRACTICE_IMPORT_REWORK.md) *(中文)*: why the importer
   checks answers itself, and what is still unreliable.
 - [Video learning](watching-workspace.md) and [voice](VOICE_CONFIGURATION.md):

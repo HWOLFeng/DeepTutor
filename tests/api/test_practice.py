@@ -496,9 +496,10 @@ def test_image_batch_imports_as_one_group(bank, monkeypatch):
 
     rows = asyncio.run(store.list_notebook_navigation())
     assert len(rows) == 1
-    assert rows[0]["question"] == "错题本照片"
+    assert rows[0]["title"] == "错题本照片"
     assert rows[0]["count"] == 2
     assert rows[0]["material_id"].startswith("import:")
+    assert rows[0]["group_ref"] == f"g:material|{rows[0]['material_id']}"
     entries = asyncio.run(store.list_notebook_entries())["items"]
     assert {entry["material_title"] for entry in entries} == {"错题本照片"}
 
@@ -801,13 +802,44 @@ def test_navigation_aggregates_practice_questions_by_import_file(bank):
     seed(store, question_id="loose", question="loose question")
 
     rows = asyncio.run(store.list_notebook_navigation())
-    by_title = {row["question"]: row for row in rows}
+    by_title = {row["title"]: row for row in rows}
     assert by_title["one.pdf"]["count"] == 3
     assert by_title["one.pdf"]["material_id"].startswith("import:")
     assert by_title["two.pdf"]["count"] == 1
-    assert by_title[""]["count"] == 1  # non-import practice collapses to one row
-    assert by_title[""]["material_id"] == ""  # only imports name a file to filter by
+    # A conversation's questions are a set too: named after the conversation
+    # and addressed by its session + turn, not by that name.
+    assert by_title["Lesson"]["count"] == 1
+    assert by_title["Lesson"]["material_id"] == ""
+    assert by_title["Lesson"]["group_ref"].startswith("g:turn|")
     assert len(rows) == 3
+
+
+def test_navigation_refs_open_exactly_the_entries_they_count(bank):
+    """A sidebar row is a promise: "3 questions" must open those 3."""
+    store, repo, _ = bank
+    repo.commit_import(
+        repo.stage_import(
+            "fractions.csv",
+            "bank",
+            [normalize_question({"question": f"fractions q{i}", "answer": "A"}) for i in range(3)],
+        )
+    )
+    repo.commit_import(
+        repo.stage_import(
+            "geometry.csv",
+            "bank",
+            [normalize_question({"question": "geometry q", "answer": "B"})],
+        )
+    )
+    seed(store, question_id="loose", question="loose question")
+
+    for row in asyncio.run(store.list_notebook_navigation()):
+        listing = asyncio.run(
+            store.list_notebook_entries(group_ref=row["group_ref"], limit=200)
+        )
+        assert listing["total"] == row["count"], row["group_ref"]
+        ids = [item["id"] for item in listing["items"]]
+        assert row["id"] in ids
 
 
 def _vision_rows(rows):

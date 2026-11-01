@@ -65,6 +65,7 @@ import { extractMathAnimatorResult } from "@/lib/math-animator-types";
 import { extractVideoLessonResult } from "@/lib/video-lesson-types";
 import {
   extractQuizQuestions,
+  extractQuizSetTitle,
   extractQuizTurnId,
   extractStreamingQuizQuestions,
 } from "@/lib/quiz-types";
@@ -819,6 +820,13 @@ export const AssistantMessage = memo(function AssistantMessage({
     return extractQuizTurnId(msg.events);
   }, [msg.capability, msg.events]);
 
+  // What this quiz is about, as named by the generator. Sent with the answers
+  // so the turn's entries are filed as a named practice set.
+  const quizSetTitle = useMemo(() => {
+    if (msg.capability !== "deep_question" || !resultEvent) return "";
+    return extractQuizSetTitle(resultEvent.metadata);
+  }, [msg.capability, resultEvent]);
+
   const mathAnimatorResult = useMemo(() => {
     if (msg.capability !== "math_animator" || !resultEvent) return null;
     return extractMathAnimatorResult(resultEvent.metadata);
@@ -1195,6 +1203,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             questions={quizQuestions}
             sessionId={sessionId}
             turnId={quizTurnId}
+            setTitle={quizSetTitle}
             language={language}
           />
         </>

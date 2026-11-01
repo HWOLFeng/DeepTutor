@@ -40,6 +40,13 @@ from deeptutor.utils.secret_files import ensure_private_directory, ensure_privat
 
 from .ask_user_trace import select_ask_user_events
 from .event_preview import MAX_TRACE_PREVIEW_EVENTS, compact_trace_preview
+from .notebook_sets import (
+    group_filter,
+    group_key_from_ref,
+    group_key_sql,
+    set_ref,
+    set_title,
+)
 from .provider_response_state import redact_private_message_metadata
 from .search import bounded_search_excerpt, normalize_search_query
 from .workspace_preferences import upgrade_workspace_preferences
@@ -213,6 +220,8 @@ class QuestionBankQuery:
     search: str = ""
     session_id: str | None = None
     session_ids: Sequence[str] | None = None
+    #: One practice set, addressed by a ref from ``list_notebook_navigation``.
+    group_ref: str = ""
     sort: str = "recent"
     limit: int = 50
     offset: int = 0
@@ -245,6 +254,7 @@ class QuestionBankQuery:
             search=(self.search or "").strip()[:200],
             session_id=self.session_id,
             session_ids=None if self.session_ids is None else tuple(self.session_ids),
+            group_ref=(self.group_ref or "").strip()[:512],
             sort="oldest" if self.sort == "oldest" else "recent",
             limit=max(1, min(int(self.limit), 500)),
             offset=max(0, int(self.offset)),
@@ -3411,7 +3421,13 @@ class SQLiteSessionStore:
                     END,
                     source = excluded.source,
                     material_id = excluded.material_id,
-                    material_title = excluded.material_title,
+                    -- A later write that carries no name must not erase the one
+                    -- a set was filed under (a retry without the generated
+                    -- topic is common); an explicit name still wins.
+                    material_title = CASE
+                        WHEN excluded.material_title != '' THEN excluded.material_title
+                        ELSE notebook_entries.material_title
+                    END,
                     section_id = excluded.section_id,
                     section_title = excluded.section_title,
                     score_trend = excluded.score_trend,
@@ -4089,6 +4105,16 @@ class SQLiteSessionStore:
         if query.material_id:
             conditions.append("n.material_id = ?")
             params.append(query.material_id)
+        if query.group_ref:
+            # One set, addressed by the same expression the sidebar grouped by
+            # (``notebook_sets.GROUP_KEY_SQL``) — a ref from a navigation row
+            # selects exactly the rows that row counted.
+            group_key = group_key_from_ref(query.group_ref)
+            group_clause = group_filter(group_key) if group_key else None
+            if group_clause is not None:
+                clause, group_params = group_clause
+                conditions.append(clause)
+                params.extend(group_params)
         if query.section_id:
             conditions.append("n.section_id = ?")
             params.append(query.section_id)
@@ -4207,47 +4233,76 @@ class SQLiteSessionStore:
             item["practice"] = practice.get(int(item["id"]))
         return {"items": items, "total": total}
 
-    async def list_notebook_navigation(self) -> list[dict[str, Any]]:
-        """Read small, grouped question identities for navigation.
+    def _list_notebook_navigation_sync(self) -> list[dict[str, Any]]:
+        """Group bank entries into practice sets, one row per set.
 
         Importing a 500-question workbook must not put 500 rows in the learning
-        sidebar. Imported questions are grouped by their source file
-        (``material_title``); questions created elsewhere collapse into one
-        practice row. ``id`` is the newest question in each group, so a group
-        with one question still opens it directly. ``material_id`` comes from
-        that same newest row and lets a group open the Question Bank filtered
-        to its file. Uses the same recycle predicate as the Question Bank; no
-        schema change is required.
+        sidebar, and two sets must never merge because their *names* match:
+        rows are grouped by :data:`~.notebook_sets.GROUP_KEY_SQL`, and every row
+        carries the ref that filters the bank back to exactly those entries.
+        ``id`` is the newest entry in the set, so a set holding one question
+        still opens that question directly. ``material_id`` keeps the import
+        file filter (and every older link) working.
         """
+        group_key_sql_text = group_key_sql()
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    grouped.group_key AS group_key,
+                    grouped.id AS id,
+                    grouped.count AS count,
+                    grouped.created_at AS created_at,
+                    grouped.updated_at AS updated_at,
+                    COALESCE(n.material_id, '') AS material_id,
+                    COALESCE(n.material_title, '') AS material_title,
+                    COALESCE(n.question, '') AS sample_question,
+                    COALESCE(s.title, '') AS session_title
+                FROM (
+                    SELECT
+                        {group_key_sql_text} AS group_key,
+                        MAX(id) AS id,
+                        COUNT(*) AS count,
+                        MIN(created_at) AS created_at,
+                        MAX(updated_at) AS updated_at
+                    FROM notebook_entries n
+                    WHERE {_NOT_RECYCLED_ENTRY_SQL.format(entries="n")}
+                    GROUP BY group_key
+                ) AS grouped
+                JOIN notebook_entries n ON n.id = grouped.id
+                LEFT JOIN sessions s ON s.id = n.session_id
+                ORDER BY grouped.updated_at DESC, grouped.id DESC
+                """  # nosec B608 - grouping/recycle fragments are literal SQL; no values interpolate
+            ).fetchall()
+        return [
+            {
+                "id": int(row["id"]),
+                # The addressable identity of the set. Older links that embedded
+                # a bare material id still resolve (see ``group_key_from_ref``).
+                "group_ref": set_ref(str(row["group_key"])),
+                # A label, never a key: provenance first (file name, partner,
+                # generated topic), then the conversation title, then the stem.
+                # The generic bucket mixes unrelated surfaces, so naming it
+                # after whichever entry happens to be newest would mislabel it;
+                # the client shows a neutral label there instead.
+                "title": ""
+                if str(row["group_key"]) == "other"
+                else set_title(
+                    material_title=str(row["material_title"]),
+                    session_title=str(row["session_title"]),
+                    sample_question=str(row["sample_question"]),
+                ),
+                "count": int(row["count"]),
+                "material_id": str(row["material_id"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
 
-        def read() -> list[dict[str, Any]]:
-            group = (
-                "CASE WHEN origin_type='external_import' "
-                "THEN substr(COALESCE(material_title,''), 1, 160) ELSE '' END"
-            )
-            with self._connect() as conn:
-                return [
-                    dict(row)
-                    for row in conn.execute(
-                        "SELECT grouped.id AS id, "
-                        "CASE WHEN n.origin_type='external_import' THEN n.material_id ELSE '' END "
-                        "AS material_id, "
-                        "grouped.question, grouped.count, grouped.created_at, grouped.updated_at "
-                        "FROM (SELECT MAX(id) AS id, "
-                        + group
-                        + " AS question, COUNT(*) AS count, "
-                        "MIN(created_at) AS created_at, MAX(updated_at) AS updated_at "
-                        "FROM notebook_entries WHERE "
-                        + _NOT_RECYCLED_ENTRY_SQL.format(entries="notebook_entries")
-                        + " GROUP BY "
-                        + group
-                        + ") AS grouped "
-                        "JOIN notebook_entries n ON n.id = grouped.id "
-                        "ORDER BY grouped.updated_at DESC, grouped.id DESC"
-                    ).fetchall()
-                ]
-
-        return await self._run(read)
+    async def list_notebook_navigation(self) -> list[dict[str, Any]]:
+        """Read one addressable row per practice set for the learning sidebar."""
+        return await self._run(self._list_notebook_navigation_sync)
 
     async def list_notebook_entries(
         self,
@@ -4271,6 +4326,7 @@ class SQLiteSessionStore:
         search: str = "",
         uncategorized: bool = False,
         mistakes_only: bool = False,
+        group_ref: str = "",
         sort: str = "recent",
     ) -> dict[str, Any]:
         """List question-bank entries. Every row carries its categories."""
@@ -4294,6 +4350,7 @@ class SQLiteSessionStore:
                 search=search,
                 session_id=session_id,
                 session_ids=session_ids,
+                group_ref=group_ref,
                 sort=sort,
                 limit=limit,
                 offset=offset,

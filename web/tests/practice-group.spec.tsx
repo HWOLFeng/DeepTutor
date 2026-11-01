@@ -6,7 +6,7 @@ import * as bank from "@/lib/notebook-api";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/learning/practice",
-  useSearchParams: () => new URLSearchParams("group=import%3Aa&file=%E4%B8%89%E5%B9%B4%E7%BA%A7.docx"),
+  useSearchParams: () => new URLSearchParams("group=g%3Amaterial%7Cimport%3Aa&file=%E4%B8%89%E5%B9%B4%E7%BA%A7.docx"),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 vi.mock("@/components/learning/practice/PracticeSession", () => ({
@@ -26,7 +26,7 @@ vi.mock("@/lib/practice-api", async original => ({
 
 initI18n("en");
 
-it("starts a practice session for the grouped file", async () => {
+it("starts a practice session for the set the row names", async () => {
   vi.mocked(bank.listNotebookEntries).mockResolvedValue({
     total: 2,
     items: [{ id: 3 }, { id: 1 }] as never,
@@ -38,7 +38,9 @@ it("starts a practice session for the grouped file", async () => {
   // The page shell is the scroll container; without it the card grows past the
   // viewport inside AppShell's clipped frame and its buttons become unreachable.
   expect(container.querySelector("[data-feature-page]")).not.toBeNull();
+  // The set is addressed by its own identity, so an imported file, a generated
+  // quiz and a partner's mistakes all reopen the same way.
   expect(vi.mocked(bank.listNotebookEntries)).toHaveBeenCalledWith(
-    expect.objectContaining({ material_id: "import:a" })
+    expect.objectContaining({ group: "g:material|import:a" })
   );
 });

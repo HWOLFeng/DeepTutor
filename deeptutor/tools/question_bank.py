@@ -9,7 +9,7 @@ correct answer. Before this tool existed the agent had no way to touch
 the bank, so "file my wrong answers into my new question set" landed in
 a notebook instead: the only writable surface it could see.
 
-One tool, six actions, because the useful sequence is short and always
+One tool, seven actions, because the useful sequence is short and always
 the same — look, then file:
 
 * ``overview``  — counts + the existing category names (one call, no ids
@@ -27,6 +27,18 @@ the same — look, then file:
   caller (#1244): the tutor coaches a photographed homework mistake and
   the question lands in the bank the family reviews, instead of dying
   in the chat transcript.
+* ``record_set`` — write a named batch of *new* questions the agent just
+  generated, e.g. 举一反三 variants of questions the learner picked out of a
+  conversation. This is the action that makes "one more set of similar
+  questions" a first-class object rather than loose rows: the batch gets a
+  durable identity (so re-running the same set updates it instead of
+  duplicating it), a name the learning sidebar shows, and an unanswered
+  state (variants must not land in the mistake queue before the learner has
+  tried them).
+
+A set's *identity* is never its name. The name is a label the sidebar shows;
+the key is derived from where the set came from, so two sets called the same
+thing stay two rows and a renamed set stays one row.
 
 Every action is dependency-injected with ``store`` so tests never touch
 a real database, and every failure returns ``ok=False`` with a sentence
@@ -38,11 +50,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import logging
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-ACTIONS = ("overview", "list", "organize", "unfile", "bookmark", "record")
+ACTIONS = (
+    "overview",
+    "list",
+    "organize",
+    "unfile",
+    "bookmark",
+    "record",
+    "record_set",
+)
 
 FILTERS = ("all", "wrong", "bookmarked", "uncategorized")
 
@@ -55,6 +76,8 @@ MAX_ENTRY_IDS = 200
 MAX_QUESTION_PREVIEW = 160
 MAX_ANSWER_PREVIEW = 60
 MAX_CATEGORY_NAME = 100
+MAX_SET_TITLE = 120
+MAX_SET_QUESTIONS = 30
 
 
 @dataclass(frozen=True)
@@ -372,33 +395,97 @@ def _record_question_id(question: str) -> str:
     return "pq_" + hashlib.sha1(normalized.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
 
 
-def _partner_record_origin() -> tuple[str, str]:
-    """Stable ``(origin_ref, title)`` naming one partner pairing's mistakes.
+@dataclass(frozen=True)
+class RecordSetIdentity:
+    """Where one recorded set lives, and what it is called.
 
-    Deterministic per partner + partner-of pairing so every recorded mistake
-    lands in the same external origin the family can review as one list.
+    ``origin_ref`` is the durable ``external_import`` identity the store keys
+    entries by; ``material_id`` is the set the learning sidebar lists and links
+    to; ``title`` is only the label the sidebar renders. The three are separate
+    on purpose — a name is never a key.
     """
-    partner_id = ""
-    actor_id = ""
-    name = ""
+
+    origin_ref: str
+    material_id: str
+    title: str
+    source: str
+
+
+def _partner_context() -> Any:
     try:
         from deeptutor.services.partners.interaction import get_partner_turn_context
 
-        context = get_partner_turn_context()
-    except Exception:
-        context = None
+        return get_partner_turn_context()
+    except Exception:  # pragma: no cover - interaction module is always present
+        return None
+
+
+def _local_day() -> str:
+    return time.strftime("%Y-%m-%d", time.localtime())
+
+
+def _record_set_identity(set_name: str = "") -> RecordSetIdentity:
+    """Identity for a set recorded from this turn.
+
+    Two shapes, because they answer different questions:
+
+    * **Partner turn** — "everything this tutor recorded for this learner" is
+      one list the family reviews, so the pairing is the set. The name is the
+      partner's display name, which is what a human would call it; it is not
+      the key, so two partners called the same thing remain two rows.
+    * **Product chat** — there is no pairing to hang the set on, so the day is
+      the batch: "Mistakes · 2026-11-01" is honest about when it was taken and
+      never renames itself when a later question is added to another day.
+
+    An explicit ``set_name`` (what the 举一反三 skill passes) overrides the
+    default label and gives the set its own identity within the origin, so a
+    named variant batch stays one set when it is recorded again.
+    """
+    context = _partner_context()
+    partner_id = str(getattr(context, "partner_id", "") or "") if context is not None else ""
+    actor_id = str(getattr(context, "actor_id", "") or "") if context is not None else ""
+    partner_name = (
+        str(getattr(context, "partner_name", "") or "").strip() if context is not None else ""
+    )
+    explicit = " ".join(str(set_name or "").split())[:MAX_SET_TITLE]
+
     if context is not None:
-        partner_id = str(getattr(context, "partner_id", "") or "")
-        actor_id = str(getattr(context, "actor_id", "") or "")
-        name = str(getattr(context, "partner_name", "") or "").strip()
-    origin_ref = f"partner:{partner_id or 'unknown'}:{actor_id or 'admin'}"
-    if name:
-        title = f"{name} (Partner)"
-    elif partner_id:
-        title = f"Partner {partner_id} notebook"
-    else:
-        title = "Partner notebook"
-    return origin_ref, title
+        origin_ref = f"partner:{partner_id or 'unknown'}:{actor_id or 'admin'}"
+        title = explicit or partner_name or f"Partner {partner_id or 'notebook'}"
+        material_id = origin_ref if not explicit else _named_set_id(origin_ref, explicit)
+        return RecordSetIdentity(
+            origin_ref=origin_ref,
+            material_id=material_id,
+            title=title,
+            source="partner_chat",
+        )
+
+    origin_ref = f"chat:{actor_id or 'self'}"
+    day = _local_day()
+    title = explicit or f"Mistakes · {day}"
+    material_id = f"chat:{actor_id or 'self'}:{day}" if not explicit else _named_set_id(
+        origin_ref, explicit
+    )
+    return RecordSetIdentity(
+        origin_ref=origin_ref,
+        material_id=material_id,
+        title=title,
+        # Generated in chat, reviewed in the same bank as quiz questions.
+        source="deep_question",
+    )
+
+
+def _named_set_id(origin_ref: str, title: str) -> str:
+    """Stable id for one *named* set within an origin.
+
+    Re-running the same named batch (a retry, a second pass over the same
+    seeds) targets the same set instead of growing a twin beside it; a
+    differently named batch gets its own row even when its questions overlap.
+    """
+    digest = hashlib.sha1(
+        f"{origin_ref}\n{title.casefold()}".encode("utf-8"), usedforsecurity=False
+    ).hexdigest()[:16]
+    return f"set:{digest}"
 
 
 async def _record(
@@ -411,6 +498,7 @@ async def _record(
     question_type: str,
     is_correct: bool,
     category: str,
+    set_name: str = "",
 ) -> QuestionBankOutcome:
     text = " ".join(str(question or "").split())
     if not text:
@@ -419,18 +507,19 @@ async def _record(
             action="record",
             error="`question` is required — the problem as the learner wrote or photographed it.",
         )
-    origin_ref, origin_title = _partner_record_origin()
+    identity = _record_set_identity(set_name)
     item = {
         "origin_type": "external_import",
-        "origin_ref": origin_ref,
+        "origin_ref": identity.origin_ref,
         "question_id": _record_question_id(text),
         "question": text[:MAX_RECORD_QUESTION],
         "question_type": str(question_type or "").strip()[:100],
         "correct_answer": _truncate(correct_answer, MAX_RECORD_FIELD),
         "explanation": _truncate(explanation, MAX_RECORD_FIELD),
         "user_answer": _truncate(user_answer, MAX_RECORD_FIELD),
-        "source": "partner_chat",
-        "material_title": origin_title,
+        "source": identity.source,
+        "material_id": identity.material_id,
+        "material_title": identity.title,
         "is_correct": bool(is_correct),
     }
     upserted = await store.upsert_notebook_entries(None, [item])
@@ -440,18 +529,20 @@ async def _record(
             action="record",
             error="The bank rejected the entry; nothing was recorded.",
         )
-    parts = [f"Recorded 1 wrong question into the bank ({origin_title})."]
+    parts = [f"Recorded 1 wrong question into the bank ({identity.title})."]
     summary: dict[str, Any] = {
         "session_id": "",
         "origin_type": "external_import",
-        "origin_ref": origin_ref,
+        "origin_ref": identity.origin_ref,
+        "material_id": identity.material_id,
+        "set_title": identity.title,
         "question_id": item["question_id"],
-        "source": "partner_chat",
+        "source": identity.source,
     }
     name = (category or "").strip()[:MAX_CATEGORY_NAME]
     if name:
         entry = await store.find_notebook_entry_by_origin(
-            "external_import", origin_ref, item["question_id"]
+            "external_import", identity.origin_ref, item["question_id"]
         )
         entry_id = int(entry["id"]) if entry and entry.get("id") is not None else None
         if entry_id is None:
@@ -465,6 +556,156 @@ async def _record(
             summary["category"] = category_row["name"]
     parts.append("The learner sees it immediately under Learning Space → Question Bank.")
     return QuestionBankOutcome(ok=True, action="record", text=" ".join(parts), summary=summary)
+
+
+def _coerce_questions(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
+    """Normalise the model's ``questions`` array into recordable items.
+
+    Only the fields a bank row needs survive; anything else is dropped rather
+    than persisted as junk. A question without a stem is reported, not skipped
+    silently — a set that came back short must not look complete.
+    """
+    if isinstance(raw, dict):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return [], ["`questions` must be a list of question objects."]
+    items: list[dict[str, Any]] = []
+    rejected: list[str] = []
+    for index, entry in enumerate(raw[:MAX_SET_QUESTIONS], start=1):
+        if not isinstance(entry, dict):
+            rejected.append(f"#{index} (not an object)")
+            continue
+        stem = " ".join(str(entry.get("question") or "").split())
+        if not stem:
+            rejected.append(f"#{index} (empty question)")
+            continue
+        options = entry.get("options")
+        if not isinstance(options, dict):
+            options = {}
+        items.append(
+            {
+                "question": stem[:MAX_RECORD_QUESTION],
+                "question_type": str(entry.get("question_type") or "").strip()[:100],
+                "options": {
+                    str(key).strip().upper()[:1]: " ".join(str(value).split())
+                    for key, value in options.items()
+                    if str(key).strip() and str(value or "").strip()
+                },
+                "correct_answer": _truncate(entry.get("correct_answer"), MAX_RECORD_FIELD),
+                "explanation": _truncate(entry.get("explanation"), MAX_RECORD_FIELD),
+                "difficulty": _truncate(entry.get("difficulty"), 40),
+            }
+        )
+    if len(raw) > MAX_SET_QUESTIONS:
+        rejected.append(
+            f"{len(raw) - MAX_SET_QUESTIONS} beyond the {MAX_SET_QUESTIONS}-question set limit"
+        )
+    return items, rejected
+
+
+async def _record_set(
+    store: Any,
+    *,
+    set_name: str,
+    raw_questions: Any,
+    category: str,
+) -> QuestionBankOutcome:
+    """File one generated batch as a named, unanswered practice set.
+
+    This is the write behind 举一反三: an agent writes new questions that vary
+    the ones the learner picked, and this action turns them into a set the
+    learner can actually practise. Entries land ``ungraded`` so a variant the
+    learner has not attempted yet is never counted as a mistake, and the set
+    can be re-recorded (same name, same origin) without duplicating rows.
+    """
+    title = " ".join(str(set_name or "").split())[:MAX_SET_TITLE]
+    if not title:
+        return QuestionBankOutcome(
+            ok=False,
+            action="record_set",
+            error=(
+                "`set` is required — name the batch after what it practises, e.g. "
+                "\"二次函数 · 变式 5 题\" or \"Fractions review · 2026-11-01\". "
+                "The name is what the learner sees in the learning sidebar."
+            ),
+        )
+    questions, rejected = _coerce_questions(raw_questions)
+    if not questions:
+        return QuestionBankOutcome(
+            ok=False,
+            action="record_set",
+            error="`questions` must contain at least one question with a stem.",
+        )
+    identity = _record_set_identity(title)
+    items = [
+        {
+            "origin_type": "external_import",
+            "origin_ref": identity.origin_ref,
+            # The batch scopes the row's identity, so one question may live in
+            # two named sets. ``turn_id`` is the store's only per-batch key and
+            # is unused for external imports; re-recording the same set reuses
+            # it, which keeps the write idempotent.
+            "turn_id": identity.material_id,
+            "question_id": _record_question_id(question["question"]),
+            "question": question["question"],
+            "question_type": question["question_type"],
+            "options": question["options"],
+            "correct_answer": question["correct_answer"],
+            "explanation": question["explanation"],
+            "difficulty": question["difficulty"],
+            "user_answer": "",
+            "source": identity.source,
+            "material_id": identity.material_id,
+            "material_title": identity.title,
+            "assessment_type": "quiz",
+            # Newly generated, not yet attempted: the bank must not file it as
+            # a mistake or schedule a review before the learner has answered.
+            "result": "ungraded",
+            "is_correct": False,
+        }
+        for question in questions
+    ]
+    upserted = await store.upsert_notebook_entries(None, items)
+    if not upserted:
+        return QuestionBankOutcome(
+            ok=False,
+            action="record_set",
+            error="The bank rejected the set; nothing was recorded.",
+        )
+    parts = [
+        f"Saved {upserted} question(s) as the practice set '{identity.title}'."
+    ]
+    if rejected:
+        parts.append(f"Skipped {', '.join(rejected[:5])}.")
+    name = (category or "").strip()[:MAX_CATEGORY_NAME]
+    summary: dict[str, Any] = {
+        "origin_type": "external_import",
+        "origin_ref": identity.origin_ref,
+        "material_id": identity.material_id,
+        "set_title": identity.title,
+        "saved": upserted,
+        "requested": len(questions),
+        "source": identity.source,
+    }
+    if name:
+        listed = await store.list_notebook_entries(material_id=identity.material_id, limit=200)
+        entry_ids = [
+            int(item["id"])
+            for item in listed.get("items") or []
+            if item.get("material_id") == identity.material_id
+        ]
+        if entry_ids:
+            category_row, created = await _resolve_or_create_category(store, name)
+            await store.link_entries_to_category(entry_ids, int(category_row["id"]), link=True)
+            parts.append(f"Tagged the set '{category_row['name']}'.")
+            if created:
+                parts.append("The tag did not exist and was created.")
+            summary["category"] = category_row["name"]
+    parts.append(
+        "The learner sees it under Learning Space → Practice, and can start it "
+        "from the learning sidebar."
+    )
+    return QuestionBankOutcome(ok=True, action="record_set", text=" ".join(parts), summary=summary)
 
 
 async def run_question_bank(
@@ -482,6 +723,8 @@ async def run_question_bank(
     explanation: str = "",
     question_type: str = "",
     is_correct: bool = False,
+    set_name: str = "",
+    questions: Any = None,
     store: Any = None,
 ) -> QuestionBankOutcome:
     """Run one question-bank action. Never raises — errors come back typed."""
@@ -520,6 +763,14 @@ async def run_question_bank(
                 explanation=explanation,
                 question_type=question_type,
                 is_correct=is_correct,
+                category=category,
+                set_name=set_name,
+            )
+        if verb == "record_set":
+            return await _record_set(
+                resolved,
+                set_name=set_name,
+                raw_questions=questions,
                 category=category,
             )
         return await _bookmark(resolved, entry_ids=entry_ids, bookmarked=bookmarked)

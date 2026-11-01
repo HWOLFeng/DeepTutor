@@ -9593,6 +9593,13 @@
             "title": "Answers",
             "type": "array"
           },
+          "set_title": {
+            "default": "",
+            "description": "Name of the set these questions belong to — the topics the quiz was generated for. The entries are filed as one practice set (material `quiz:<turn_id>`), which is what the learning sidebar lists and what its row opens. Blank keeps the stored name.",
+            "maxLength": 120,
+            "title": "Set Title",
+            "type": "string"
+          },
           "turn_id": {
             "default": "",
             "title": "Turn Id",
@@ -44514,6 +44521,19 @@
               "default": "",
               "maxLength": 500,
               "title": "Material Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One practice set, addressed by the `group_ref` of a learning-sidebar row. Also accepts a legacy bare material id.",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "One practice set, addressed by the `group_ref` of a learning-sidebar row. Also accepts a legacy bare material id.",
+              "maxLength": 512,
+              "title": "Group",
               "type": "string"
             }
           },
