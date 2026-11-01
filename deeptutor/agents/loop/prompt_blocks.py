@@ -165,6 +165,11 @@ class LoopPromptAssembler:
         # conversation expects the tutor to already know what "上次" was.
         if context.learning_journal_context:
             blocks.append(PromptBlock("learning_journal", context.learning_journal_context))
+        # What today holds belongs next to the carried-over learning state: a
+        # learner who asks "what should I do now" should not have to call a
+        # tool for facts the turn already loaded.
+        if context.planner_context:
+            blocks.append(PromptBlock("planner", context.planner_context))
         if include_tool_manifest:
             tools = tool_manifest or self._fallback_empty_tool_list()
             if kb_note:

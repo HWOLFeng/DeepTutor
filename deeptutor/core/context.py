@@ -112,6 +112,10 @@ class UnifiedContext:
         language: UI / response language ("en" | "zh").
         memory_context: Memory text in the latest runtime-context snapshot.
         learning_journal_context: Mission and handoff snapshot taken at turn start.
+        planner_context: Read-only snapshot of today's calendar, the tasks due
+            inside the planning window, this conversation's linked tasks and
+            how much spaced repetition is due. Bounded and self-degrading; the
+            full task board already rides in ``source_manifest``.
         persona_context: Selected persona's instructions, eagerly injected
             into the system prompt (a persona must shape the voice from the
             first token; empty when no persona is active).
@@ -145,6 +149,7 @@ class UnifiedContext:
     language: str = "en"
     memory_context: str = ""
     learning_journal_context: str = ""
+    planner_context: str = ""
     persona_context: str = ""
     sidebar_context: str = ""
     skills_manifest: str = ""

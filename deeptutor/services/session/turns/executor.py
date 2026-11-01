@@ -599,6 +599,26 @@ class TurnExecutor:
                 except (OSError, ValueError):
                     logger.exception("Unable to read the learning journal; preserving its file")
 
+            # What today holds: the calendar, the tasks due inside the planning
+            # window, and the spaced-repetition load. A planning turn needs
+            # these facts before it reaches for a tool, and plain chat still
+            # benefits from "what is due today". The builder degrades source by
+            # source, so a broken calendar costs one line, not the turn.
+            planner_context = ""
+            if not side_chat_context and (capability_name or "") in {"", "chat"}:
+                from deeptutor.modules.catalog import module_enabled
+
+                if module_enabled("calendar"):
+                    try:
+                        from deeptutor.services.planner.context import load_planner_context
+                        from deeptutor.services.workspace.context import current_workspace_id
+
+                        planner_context = load_planner_context(
+                            current_workspace_id(), session_id=session_id
+                        )
+                    except (OSError, ValueError):
+                        logger.exception("Unable to build the planner context")
+
             # Persona: at most one behaviour preset per turn, eagerly
             # injected (a persona must shape the voice from the first
             # token). Resolution: the user's own workspace first, then
@@ -966,6 +986,7 @@ class TurnExecutor:
                 language=payload.get("language", "en"),
                 memory_context=memory_context,
                 learning_journal_context=learning_journal_context,
+                planner_context=planner_context,
                 persona_context=persona_context,
                 sidebar_context=sidebar_system_context,
                 skills_manifest=skills_manifest,

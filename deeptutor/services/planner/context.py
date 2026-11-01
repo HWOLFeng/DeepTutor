@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import os
+from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -158,8 +160,41 @@ def render_planner_context(snapshot: PlannerSnapshot) -> str:
             return text[:MAX_CONTEXT_CHARS]
 
 
+def local_zone_name() -> str:
+    """The host's own zone, as well as it can be determined.
+
+    Nothing in the turn payload names the reader's zone yet, and a planner that
+    says "today" in the wrong zone is worse than no planner at all. This is the
+    best available answer for a local-first install; callers that know the
+    reader's zone must pass it explicitly instead.
+    """
+    env = os.environ.get("TZ", "").strip()
+    if env and "/" in env:
+        return env
+    try:
+        text = Path("/etc/timezone").read_text(encoding="utf-8").strip()
+        if "/" in text:
+            return text
+    except OSError:
+        pass
+    try:
+        parts = Path("/etc/localtime").resolve().parts
+        if "zoneinfo" in parts:
+            return "/".join(parts[parts.index("zoneinfo") + 1 :])
+    except OSError:
+        pass
+    return "UTC"
+
+
+def _zone(tzid: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(tzid)
+    except Exception:  # noqa: BLE001 - an unknown zone must not cost the block
+        return ZoneInfo("UTC")
+
+
 def _today_label(moment: datetime, tzid: str) -> str:
-    local = moment.astimezone(ZoneInfo(tzid))
+    local = moment.astimezone(_zone(tzid))
     return f"{local.date().isoformat()} {local.strftime('%a')}"
 
 
@@ -172,7 +207,7 @@ def _default_sources(
         from deeptutor.services.calendar.store import get_calendar_store
 
         payload = get_calendar_store().occurrences(lo, hi, tz_name)
-        zone = ZoneInfo(tz_name)
+        zone = _zone(tz_name)
         rows: list[dict[str, Any]] = []
         for occurrence in payload.get("occurrences") or []:
             if occurrence.all_day:
@@ -262,7 +297,7 @@ def load_planner_context(
 ) -> str:
     """Builds the planner prompt block for one workspace and conversation."""
     moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    zone_name = str(tzid or "UTC")
+    zone_name = str(tzid or local_zone_name() or "UTC")
     horizon = max(1, int(days))
     hi = moment + timedelta(days=horizon)
     active = sources or _default_sources(
@@ -314,6 +349,7 @@ def load_planner_context(
 __all__ = [
     "MAX_CONTEXT_CHARS",
     "PlannerSnapshot",
+    "local_zone_name",
     "PlannerSources",
     "load_planner_context",
     "render_planner_context",
