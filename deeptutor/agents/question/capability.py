@@ -3,6 +3,9 @@
 Routes one user turn through the right quiz-generation path:
 
 * followup — single-call ``FollowupAgent`` reply about one prior question.
+* variants  — 举一反三: the learner picked questions, each becomes a template
+  whose seed is varied rather than paraphrased; the same pipeline writes,
+  validates and streams the new questions.
 * custom mode — new ``QuestionPipeline`` (explore → plan → per-question loop).
 * mimic mode  — same pipeline, but PDF parsing produces the templates
   and ``templates_override`` skips explore + plan.
@@ -24,6 +27,168 @@ from deeptutor.i18n import StatusI18n
 from deeptutor.runtime.agentic.usage import UsageTracker
 from deeptutor.runtime.bootstrap.builtin_capabilities import builtin_capability_manifest
 from deeptutor.runtime.stream_bus import StreamBus
+
+#: How many seed questions one 举一反三 request may carry. The learner picks a
+#: handful of questions; a batch of thirty seeds is a request to generate from
+#: the topic, not from those questions.
+MAX_SEED_QUESTIONS = 10
+
+#: Ceiling on generated variants, matching ``question_bank.record_set``.
+MAX_VARIANT_QUESTIONS = 30
+
+#: The pipeline's own question types; seeds arrive with the bank's names.
+_SEED_QUESTION_TYPES = {
+    "choice": "choice",
+    "single_choice": "choice",
+    "multiple_choice": "choice",
+    "multi_choice": "choice",
+    "mcq": "choice",
+    "concept": "concept",
+    "true_false": "concept",
+    "judgement": "concept",
+    "fill_in_blank": "fill_in_blank",
+    "fill_blank": "fill_in_blank",
+    "cloze": "fill_in_blank",
+    "short_answer": "short_answer",
+    "written": "written",
+    "essay": "written",
+    "coding": "coding",
+    "code": "coding",
+}
+
+_SEED_TOPIC_LIMIT = 60
+
+#: One band up, used by the difficulty ladder of a multi-question batch.
+_DIFFICULTY_LADDER = {"easy": "medium", "medium": "hard", "hard": "hard"}
+
+
+def _variant_difficulty(base: str, index: int, count: int) -> str:
+    """Difficulty for variant ``index`` of ``count``.
+
+    A batch that stays flat is a batch the learner can already do; a batch that
+    jumps is a wall. The first two thirds stay at the seed's band and the rest
+    step up exactly one, so the set ends slightly harder than it started — the
+    same ladder the practice-variants skill describes.
+    """
+    band = (base or "medium").strip().lower()
+    if band not in _DIFFICULTY_LADDER:
+        band = "medium"
+    if count <= 1:
+        return band
+    two_thirds = max(1, count - (count + 2) // 3)
+    return band if index < two_thirds else _DIFFICULTY_LADDER[band]
+
+
+def _seed_question_type(raw: Any, has_options: bool) -> str:
+    """Map a bank question type onto a pipeline type, keeping the shape."""
+    key = str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    mapped = _SEED_QUESTION_TYPES.get(key)
+    if mapped:
+        return mapped
+    return "choice" if has_options else "short_answer"
+
+
+def _seed_topic(seed: dict[str, Any]) -> str:
+    """What this seed practises; falls back to the stem itself.
+
+    The seed's own topic label (a quiz's ``concentration``) names the batch far
+    better than the stem, but a question copied out of the bank may carry none —
+    then its opening words are still more useful than "Variant set".
+    """
+    topic = " ".join(str(seed.get("topic") or "").split())
+    if topic:
+        return topic[:120]
+    stem = " ".join(str(seed.get("question") or "").split())
+    return (stem[: _SEED_TOPIC_LIMIT - 1] + "…") if len(stem) > _SEED_TOPIC_LIMIT else stem
+
+
+def _render_seed_answer(seed: dict[str, Any]) -> str:
+    """The seed's answer, shaped so the writer can keep the question type.
+
+    Options are part of the shape, not of the answer: a variant of a
+    multiple-choice question has to be multiple choice, and the model can only
+    keep that promise if it sees the option set it is varying.
+    """
+    parts: list[str] = []
+    options = seed.get("options")
+    if isinstance(options, dict) and options:
+        rendered = " | ".join(
+            f"{str(key).upper()}. {value}"
+            for key, value in options.items()
+            if str(value or "").strip()
+        )
+        if rendered:
+            parts.append(f"Options: {rendered}")
+    answer = " ".join(str(seed.get("correct_answer") or "").split())
+    if answer:
+        parts.append(f"Answer: {answer}")
+    explanation = " ".join(str(seed.get("explanation") or "").split())
+    if explanation:
+        parts.append(f"Why: {explanation}")
+    return "\n".join(parts)
+
+
+def _seed_questions(overrides: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read ``seed_questions`` from the turn config into usable seeds.
+
+    Accepts both the structured shape the app sends (question, type, options,
+    answer…) and a plain list of strings, so an API caller or the CLI can pass
+    "these three questions". Anything without a stem is dropped — a variant
+    seeded by nothing cannot be written.
+    """
+    raw = overrides.get("seed_questions")
+    if isinstance(raw, dict):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return []
+    seeds: list[dict[str, Any]] = []
+    for item in raw[:MAX_SEED_QUESTIONS]:
+        if isinstance(item, str):
+            question = " ".join(item.split())
+            if question:
+                # A plain string seed carries no shape metadata; it is still a
+                # usable seed, and the writer decides the type it can keep.
+                seeds.append(
+                    {
+                        "question": question,
+                        "question_type": "short_answer",
+                        "options": {},
+                        "correct_answer": "",
+                        "explanation": "",
+                        "difficulty": "",
+                        "topic": "",
+                    }
+                )
+            continue
+        if not isinstance(item, dict):
+            continue
+        question = " ".join(str(item.get("question") or "").split())
+        if not question:
+            continue
+        options = item.get("options")
+        options = (
+            {
+                str(key).strip().upper()[:1]: " ".join(str(value).split())
+                for key, value in options.items()
+                if str(key).strip() and str(value or "").strip()
+            }
+            if isinstance(options, dict)
+            else {}
+        )
+        seeds.append(
+            {
+                "question": question,
+                "question_type": _seed_question_type(item.get("question_type"), bool(options)),
+                "options": options,
+                "correct_answer": " ".join(str(item.get("correct_answer") or "").split()),
+                "explanation": " ".join(str(item.get("explanation") or "").split()),
+                "difficulty": str(item.get("difficulty") or "").strip().lower()[:20],
+                "topic": " ".join(
+                    str(item.get("topic") or item.get("concentration") or "").split()
+                ),
+            }
+        )
+    return seeds
 
 
 class DeepQuestionCapability(TurnCapability):
@@ -114,6 +279,35 @@ class DeepQuestionCapability(TurnCapability):
         )
         history_context = str(context.metadata.get("conversation_context_text", "") or "").strip()
 
+        # 举一反三: the learner picked questions and asked for more like them.
+        # Seeds win over the topic path, and a batch that *claims* to be seeded
+        # but has no usable stem is an error rather than a silent fallback —
+        # generating about the topic instead would answer a different request.
+        seeds = _seed_questions(overrides)
+        if "seed_questions" in overrides and not seeds:
+            await stream.error(
+                i18n.t(
+                    "variants_invalid_seeds",
+                    "The selected questions could not be read; pick them again.",
+                ),
+                source=self.name,
+                metadata={"code": "variants_invalid_seeds", "retryable": True},
+            )
+            return
+        if seeds:
+            await self._run_variants(
+                context=context,
+                stream=stream,
+                seeds=seeds,
+                topic=topic,
+                num_questions=num_questions,
+                difficulty=difficulty,
+                history_context=history_context,
+                kb_name=kb_name,
+                i18n=i18n,
+            )
+            return
+
         if mode != "mimic":
             # New custom-mode pipeline: explore → plan → per-question quiz loop.
             # The pipeline owns its own stream.content / stream.result emission;
@@ -171,6 +365,95 @@ class DeepQuestionCapability(TurnCapability):
             history_context=history_context,
             num_questions=num_questions,
             i18n=i18n,
+        )
+
+    async def _run_variants(
+        self,
+        *,
+        context: UnifiedContext,
+        stream: StreamBus,
+        seeds: list[dict[str, Any]],
+        topic: str,
+        num_questions: int,
+        difficulty: str,
+        history_context: str,
+        kb_name: str | None,
+        i18n: StatusI18n | None = None,
+    ) -> None:
+        """举一反三: seed questions → templates → the normal quiz pipeline.
+
+        One generated question per seed; asking for more than there are seeds
+        round-robins them, so "再来 5 道类似的" works from a single picked
+        question. The pipeline then writes, validates and streams each one
+        through exactly the same path as a topic-driven quiz, and the result
+        carries ``mode: "variants"`` plus a title the client files the batch
+        under.
+        """
+        from deeptutor.agents.question.history import load_session_quiz_history
+        from deeptutor.agents.question.pipeline import QuestionPipeline, QuizTemplate
+        from deeptutor.agents.question.request_config import (
+            build_question_runtime_config,
+        )
+        from deeptutor.services.config import load_config_with_main
+
+        if i18n is None:
+            i18n = StatusI18n(self.name, context.language, module="question")
+
+        count = min(
+            max(int(num_questions or 0), len(seeds)),
+            MAX_VARIANT_QUESTIONS,
+        )
+        templates = []
+        for index in range(count):
+            seed = seeds[index % len(seeds)]
+            templates.append(
+                QuizTemplate(
+                    question_id=f"q_{index + 1}",
+                    topic=_seed_topic(seed),
+                    question_type=seed["question_type"],
+                    # An explicit request wins; otherwise the batch climbs one
+                    # band from the seed's own difficulty.
+                    difficulty=(
+                        difficulty
+                        if difficulty
+                        else _variant_difficulty(str(seed.get("difficulty") or ""), index, count)
+                    ),
+                    source="variant",
+                    reference_question=seed["question"],
+                    reference_answer=_render_seed_answer(seed),
+                )
+            )
+
+        await stream.progress(
+            message=i18n.t(
+                "variants_ready",
+                "Generating {count} variant question(s) of the selected questions...",
+                count=count,
+            ),
+            source=self.name,
+            stage="generating",
+        )
+
+        runtime_config = build_question_runtime_config(
+            base_config=load_config_with_main("main.yaml"),
+        )
+        pipeline = QuestionPipeline(
+            language=context.language,
+            kb_name=kb_name,
+            enabled_tools=list(context.enabled_tools or []),
+            runtime_config=runtime_config,
+        )
+        quiz_history = await load_session_quiz_history(context.session_id or "")
+        await pipeline.run(
+            context=context,
+            user_message=topic,
+            num_questions=count,
+            difficulty=difficulty,
+            conversation_context=history_context,
+            attachments=context.attachments,
+            quiz_history=quiz_history,
+            templates_override=templates,
+            stream=stream,
         )
 
     async def _run_mimic_mode(
@@ -353,7 +636,15 @@ class DeepQuestionCapability(TurnCapability):
                 key: value
                 for key, value in update.items()
                 if key
-                not in {"event", "state", "response", "chunk", "result", "tool_name", "tool_args"}
+                not in {
+                    "event",
+                    "state",
+                    "response",
+                    "chunk",
+                    "result",
+                    "tool_name",
+                    "tool_args",
+                }
             }
 
             if event == "llm_call":

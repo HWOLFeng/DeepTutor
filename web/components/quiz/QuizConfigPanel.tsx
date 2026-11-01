@@ -184,6 +184,50 @@ export default memo(function QuizConfigPanel({
         ))}
       </div>
 
+      {value.mode === "custom" && value.seeds.length > 0 && (
+        <div className="rounded-lg border border-[var(--primary)]/25 bg-[var(--primary)]/[0.04] p-2.5">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-medium text-[var(--muted-foreground)]">
+              {t("Seeds ({{count}})", { count: value.seeds.length })}
+            </span>
+            <button
+              type="button"
+              onClick={() => update("seeds", [])}
+              className="rounded px-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+            >
+              {t("Clear")}
+            </button>
+          </div>
+          <ul className="space-y-1">
+            {value.seeds.map((seed, index) => (
+              <li key={`${index}-${seed.question.slice(0, 24)}`} className="flex items-start gap-1.5">
+                <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--foreground)]">
+                  {seed.topic?.trim() || seed.question}
+                </span>
+                <button
+                  type="button"
+                  aria-label={t("Remove seed {{index}}", { index: index + 1 })}
+                  onClick={() =>
+                    update(
+                      "seeds",
+                      value.seeds.filter((_, position) => position !== index),
+                    )
+                  }
+                  className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[10.5px] leading-snug text-[var(--muted-foreground)]">
+            {t(
+              "Each seed produces one new question that keeps its knowledge point, type and difficulty but changes the surface.",
+            )}
+          </p>
+        </div>
+      )}
+
       {value.mode === "custom" ? (
         <div className="space-y-2.5">
           <div className="flex items-end gap-x-2">

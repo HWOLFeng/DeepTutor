@@ -6226,5 +6226,16 @@
   "Checking answers": "Checking answers",
   "Structuring questions": "Structuring questions",
   "Saving figures": "Saving figures",
-  "{{count}} duplicate questions on the same figure were merged.": "{{count}} duplicate questions on the same figure were merged."
+  "{{count}} duplicate questions on the same figure were merged.": "{{count}} duplicate questions on the same figure were merged.",
+  "Similar questions": "Similar questions",
+  "Pick at most {{count}} questions to seed a variant set.": "Pick at most {{count}} questions to seed a variant set.",
+  "Write new questions like these, as one named practice set.": "Write new questions like these, as one named practice set.",
+  "Make new questions like the {{count}} I picked: same knowledge points and types, one step harder, and name the set after what it practises.": "Make new questions like the {{count}} I picked: same knowledge points and types, one step harder, and name the set after what it practises.",
+  "More questions like this": "More questions like this",
+  "Make 3 new questions like this one: same knowledge point and type, a little harder, and name the set after what it practises.": "Make 3 new questions like this one: same knowledge point and type, a little harder, and name the set after what it practises.",
+  "Seeds ({{count}})": "Seeds ({{count}})",
+  "Remove seed {{index}}": "Remove seed {{index}}",
+  "Each seed produces one new question that keeps its knowledge point, type and difficulty but changes the surface.": "Each seed produces one new question that keeps its knowledge point, type and difficulty but changes the surface.",
+  "Variants": "Variants",
+  "seeds": "seeds"
 }

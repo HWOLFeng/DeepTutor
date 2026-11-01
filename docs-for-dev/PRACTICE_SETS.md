@@ -98,10 +98,12 @@
 
 ### 输入
 
-- **种子**：1–5 道题，来自会话中的测验卡片、题库、或错题本。种子必须带题干；
-  答案与解析可选（有则用于约束难度和正确性）。
-- **数量**：默认与种子数量相同，上限 30（与 `record_set` 的限制一致）。
-- **难度**：默认沿用种子难度并做一档递进（易→中→中→难），可显式指定。
+- **种子**：来自会话里的测验卡片、题库或错题本。应用入口最多 5 道（勾选超过即置灰），
+  后端接受最多 10 道。种子必须带题干；答案、解析、难度、知识点标签有则使用。
+- **数量**：默认与种子数量相同；要求更多时按种子循环（单道种子也能出 3 道），
+  上限 30（与 `record_set` 一致）。
+- **难度**：不指定时按种子难度起步、后三分之一升一档（易→易→中，中→中→难，
+  难封顶）；显式指定则整批使用该难度。
 
 ### 生成规则
 
@@ -109,7 +111,8 @@
    题干、选项或答案。
 2. **保持题型**：选择题的选项个数与正确项位置不固定；填空题只有一个空；
    判断题是单一命题。
-3. **难度阶梯**：至少一道与种子同难度，其余不高于种子难度 +1 档。
+3. **难度阶梯**：默认前三分之二与种子同档、其余升一档（不降档、不越级），
+   显式指定的难度整批生效。
 4. **可判定**：每题都必须给出可判定的 `correct_answer`；算得出来的题不给
    「由模型求解」的答案。
 5. **不重复**：先看种子的同组题目与既有题组（`question_bank` 的 `list`），
@@ -141,6 +144,37 @@
 学习者侧验收：学习侧栏出现一行该组名，右侧数字等于题数，点开直接从第一题开始；
 题库的「材料」筛选里也能按组名找到同一批题。
 
+
+### 入口与链路（第二期）
+
+学习者在应用里有两个起点，走的是同一条链路：
+
+| 入口 | 位置 | 种子的来源 |
+| --- | --- | --- |
+| 「相似题」（`Similar questions`） | 题库 / 练习页的多选浮动条 | 勾选的 1–5 道题 |
+| 「再来几道类似的」（卡片右上角 ✨） | 会话里测验卡片的题头 | 当前这道题 |
+
+1. 入口把选中题目映射成种子（[quiz-seeds.ts](../web/lib/quiz-seeds.ts)）：
+   题干、题型（题库的 `single_choice`/`multi_choice`/`true_blank`… 归一到
+   `choice`/`concept`/`fill_in_blank`/`short_answer`/`written`/`coding`）、
+   选项、答案、解析、难度、知识点标签（优先取标签，其次材料名）。
+2. 种子经一次性会话存储交接（[pending-quiz-seeds.ts](../web/lib/pending-quiz-seeds.ts)），
+   同时把开场白预填到输入框（[variant-launch.ts](../web/lib/variant-launch.ts)），
+   然后跳到 `/chat?capability=deep_question`。种子不进 URL：它带着答案与选项，
+   放进查询串既会超长，也会把学习者的作答留在历史里。
+3. 新会话的 composer 消费种子，写入 `deep_question` 配置
+   （[ChatWorkspace.tsx](../web/features/chat/components/ChatWorkspace.tsx)）：
+   配置卡显示「种子题（N）」列表，可逐条移除或整体清空；清空即回到按主题出题。
+4. 发送时 `buildQuizWSConfig` 带上 `seed_questions`；后端
+   [capability.py](../deeptutor/agents/question/capability.py) 把每道种子变成
+   `QuizTemplate(source="variant")`，数量取 `max(请求数, 种子数)`（单道种子也能
+   出 3 道，按种子循环），上限 30；随后复用普通测验的逐题生成、校验、流式渲染。
+5. 生成结果 `mode="variants"`、`summary.title` 带本地化后缀（`· 变式`），
+   学习者作答后按上一节的规则落成 `quiz:<turn_id>` 题组。
+
+种子为空却声称「有种子」会直接报错（`variants_invalid_seeds`），不会静默退化成
+按主题出题——那等于回答了另一个请求。
+
 ## 为什么要（也不只要）沉淀成 Skill
 
 结论：**要沉淀，但 Skill 只承担判断与流程，身份与渲染必须留在代码里。**
@@ -167,18 +201,21 @@ agent 不知道该在什么时机、用什么手法生成变式。两者缺一�
 - 内置 skill `practice-variants`：举一反三的流程、变式手法与命名规范；
 - 回归测试覆盖：身份不等于名称、引用回环、旧链接兼容、未作答不计错。
 
-**第二期（待做，建议顺序）**
+**第二期（已实现）**
 
-1. **种子入口**：测验卡片与题库多选增加「举一反三」，把选中的题带进
-   composer 的 `deep_question` 配置（`seed_questions`）。
+1. **种子入口**：题库多选浮动条的「相似题」与会话测验卡片的「再来几道类似的」，
+   把选中题带进 composer 的 `deep_question` 配置（`seed_questions`），
+   配置卡可见、可逐条移除。
 2. **capability 变式模式**：`deep_question` 读取 `seed_questions`，跳过
-   explore/plan 直接按种子构造模板，并复用现有的逐题生成与校验链路；
-   这样变式题组与普通测验走同一条渲染与作答路径。
-3. **去重与难度校准**：把种子题目的知识点标签带进 `record_set`，
-   在题库内做近似重复检测（题干指纹 + 选项集合）。
+   explore/plan，按种子构造 `source="variant"` 的模板，复用逐题生成 / 校验 /
+   流式渲染；结果为 `mode="variants"`，组名带「· 变式」后缀。
+3. **命名与落库打通**：变式批次作答后按 `quiz:<turn_id>` + 主题名成组，
+   与普通测验完全一致（技能路径则用 `record_set`）。
 
-**第三期**
+**第三期（待做）**
 
+- **去重与难度校准**：题库内近似重复检测（题干指纹 + 选项集合），
+  种子知识点标签回填到生成的题目上；
 - 变式正确率回填：用复习结果标注「这组变式偏难/偏易」，供下次生成参考；
 - 周期性的「同知识点再练一组」提醒（复用现有复习调度，不新增调度器）。
 
@@ -192,6 +229,10 @@ agent 不知道该在什么时机、用什么手法生成变式。两者缺一�
 | 会话生成的题组 | 行名是主题，不是会话标题；点开直接开始 |
 | 只答了 1 题的测验 | 侧栏已出现该组，数量为已答题数 |
 | 举一反三生成的题组 | 未作答、不在错题集合、`result=ungraded` |
+| 题库勾选 3 题 →「相似题」 | 跳到测验 composer，配置卡显示 3 个种子，发送后生成 3 道、组名带「· 变式」 |
+| 测验卡片 ✨ | 以当前题为唯一种子，生成 3 道；可用在作答之前 |
+| 勾选超过 5 题 | 「相似题」置灰并说明上限，不会静默截断 |
+| 种子被清空后发送 | 回到按主题出题，不再声称变式 |
 | 旧 `?group=<material_id>` 链接 | 仍然打开对应导入题组 |
 
 ## 实现索引
@@ -205,8 +246,22 @@ agent 不知道该在什么时机、用什么手法生成变式。两者缺一�
   [LearningNavigation.tsx](../web/components/sidebar/LearningNavigation.tsx)、
   [PracticeGroupSession.tsx](../web/components/learning/practice/PracticeGroupSession.tsx)
 - agent 写入：[question_bank.py](../deeptutor/tools/question_bank.py)（`record`、`record_set`）
+- 变式模式（后端）：[capability.py](../deeptutor/agents/question/capability.py)（`_seed_questions`、`_run_variants`）、
+  [pipeline.py](../deeptutor/agents/question/pipeline.py)（`source="variant"`、`is_variants`、组名后缀）、
+  [prompts/en/pipeline.yaml](../deeptutor/agents/question/prompts/en/pipeline.yaml)、
+  [prompts/zh/pipeline.yaml](../deeptutor/agents/question/prompts/zh/pipeline.yaml)
+- 变式入口（前端）：[quiz-seeds.ts](../web/lib/quiz-seeds.ts)、
+  [variant-launch.ts](../web/lib/variant-launch.ts)、
+  [pending-quiz-seeds.ts](../web/lib/pending-quiz-seeds.ts)、
+  [BankSelectionBar.tsx](../web/components/space/question-bank/BankSelectionBar.tsx)、
+  [QuizViewer.tsx](../web/components/quiz/QuizViewer.tsx)、
+  [QuizConfigPanel.tsx](../web/components/quiz/QuizConfigPanel.tsx)
 - skill：[practice-variants/SKILL.md](../deeptutor/skills/builtin/practice-variants/SKILL.md)
 - 回归：[test_notebook_sets.py](../tests/services/session/test_notebook_sets.py)、
   [test_question_bank_tool.py](../tests/tools/test_question_bank_tool.py)、
   [learning-dashboard.test.ts](../web/tests/learning-dashboard.test.ts)、
-  [practice-group.spec.tsx](../web/tests/practice-group.spec.tsx)
+  [practice-group.spec.tsx](../web/tests/practice-group.spec.tsx)、
+  [test_variants.py](../tests/agents/question/test_variants.py)、
+  [quiz-seeds.test.ts](../web/tests/quiz-seeds.test.ts)、
+  [variant-launch.spec.ts](../web/tests/variant-launch.spec.ts)、
+  [quiz-config-seeds.spec.tsx](../web/tests/quiz-config-seeds.spec.tsx)

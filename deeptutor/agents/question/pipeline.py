@@ -530,6 +530,14 @@ class QuestionPipeline:
         client: Any,
     ) -> dict[str, Any]:
         is_mimic = templates_override is not None
+        # A variants batch ("举一反三") is also template-driven, but its templates
+        # carry the *seed* question instead of an exam-paper question. The
+        # template's own source decides how the quiz step is instructed, so the
+        # only extra state the pipeline needs here is the mode it reports.
+        is_variants = bool(templates_override) and all(
+            template.source == "variant" for template in templates_override or []
+        )
+        mode_label = "variants" if is_variants else ("mimic" if is_mimic else "custom")
         logger.info(
             "QuestionPipeline.run: lang=%s kb=%s tools=%s requested=%d "
             "explore_iter=%d quiz_iter/q=%d history=%d mode=%s",
@@ -540,15 +548,16 @@ class QuestionPipeline:
             self.max_explore_iterations,
             self.max_quiz_iterations_per_question,
             len(quiz_history),
-            "mimic" if is_mimic else "custom",
+            mode_label,
         )
 
         finish_text = ""
         if is_mimic:
-            # Mimic mode: templates come from an exam paper. We skip explore
-            # + plan and synthesize a minimal Plan envelope so downstream
-            # rendering / result code paths stay identical. ``exploration_trace``
-            # is the empty marker so quiz prompts render a coherent section.
+            # Mimic / variants mode: templates come from a paper or from the
+            # learner's selected questions. We skip explore + plan and
+            # synthesize a minimal Plan envelope so downstream rendering /
+            # result code paths stay identical. ``exploration_trace`` is the
+            # empty marker so quiz prompts render a coherent section.
             exploration_trace = self._t("empty.no_exploration_trace")
             plan = QuizPlan(analysis="", templates=list(templates_override or []))
         else:
@@ -608,7 +617,11 @@ class QuestionPipeline:
 
         # ----- Result envelope -----
         result_payload = self._build_result_payload(
-            plan, qa_pairs, is_mimic=is_mimic, finish_text=finish_text
+            plan,
+            qa_pairs,
+            is_mimic=is_mimic,
+            is_variants=is_variants,
+            finish_text=finish_text,
         )
         await emit_capability_result(stream, result_payload, source=SOURCE, usage=self.usage)
         return result_payload
@@ -1323,6 +1336,7 @@ class QuestionPipeline:
         qa_pairs: list[QuizPair],
         *,
         is_mimic: bool = False,
+        is_variants: bool = False,
         finish_text: str = "",
     ) -> dict[str, Any]:
         """Compose the terminal envelope.
@@ -1365,7 +1379,7 @@ class QuestionPipeline:
             "response": response_body,
             "summary": {
                 "success": successful == len(qa_pairs) and bool(qa_pairs),
-                "source": "exam" if is_mimic else "topic",
+                "source": "variants" if is_variants else ("exam" if is_mimic else "topic"),
                 "requested": len(plan.templates),
                 "template_count": len(plan.templates),
                 "completed": successful,
@@ -1374,22 +1388,26 @@ class QuestionPipeline:
                 # it. The client sends it back when the answers are filed, so
                 # the practice set the sidebar lists is named after what the
                 # quiz is about instead of the conversation it happened in.
-                "title": self._set_title(plan),
+                "title": self._set_title(plan, is_variants=is_variants),
                 "templates": [self._template_to_dict(t) for t in plan.templates],
                 "results": results,
                 "analysis": plan.analysis,
             },
-            "mode": "mimic" if is_mimic else "custom",
+            "mode": "variants" if is_variants else ("mimic" if is_mimic else "custom"),
         }
         return payload
 
-    def _set_title(self, plan: QuizPlan) -> str:
+    def _set_title(self, plan: QuizPlan, *, is_variants: bool = False) -> str:
         """A short name for this quiz, built from its templates' topics.
 
         Topics are the planner's own one-line descriptions of what each
         question tests, so two or three of them name the batch far better than
         the learner's prompt ("出5道题") ever could. Duplicates collapse, order
         is preserved, and the result is capped so a sidebar row stays readable.
+
+        A variants batch carries a localized suffix ("· 变式" / "· variants"):
+        the sidebar then tells a generated set from the original set it was
+        derived from, even when both practise the same topics.
         """
         separator = "、" if str(self.language or "").lower().startswith("zh") else "; "
         seen: set[str] = set()
@@ -1403,6 +1421,12 @@ class QuestionPipeline:
             if len(topics) == 3:
                 break
         title = separator.join(topics)
+        if is_variants:
+            suffix = self._t("variants.title_suffix").strip()
+            if title:
+                title = f"{title}{suffix}" if suffix else title
+            else:
+                title = self._t("variants.default_title", "Variants").strip() or "Variants"
         return title[:120]
 
     # ------------------------------------------------------------------
@@ -1941,14 +1965,28 @@ class QuestionPipeline:
         return "\n".join(f"{i}. {qa.question}" for i, qa in enumerate(qa_pairs, 1))
 
     def _render_reference_block(self, template: QuizTemplate) -> str:
-        """Mimic-mode reference block injected into ``quiz_step.user_template``.
+        """Mimic / variants reference block injected into ``quiz_step.user_template``.
 
         For ``custom`` templates this is the YAML-supplied empty marker so
         the LLM treats this as a generative task; for ``mimic`` templates
         we surface the original exam-paper question (and reference answer
         when present) so the LLM shadows the source's style and difficulty
         rather than inventing a fresh stem.
+
+        For ``variant`` templates the seed question is surfaced with the
+        opposite instruction: keep the knowledge point, type and difficulty,
+        but change the surface. Copying the seed would make the batch useless.
         """
+        if template.source == "variant":
+            seed_question = (template.reference_question or "").strip()
+            seed_answer = (template.reference_answer or "").strip()
+            if not seed_question:
+                return self._t("empty.no_reference")
+            return self._t(
+                "variants.block",
+                seed_question=seed_question,
+                seed_answer=seed_answer or self._t("empty.no_seed_answer"),
+            )
         if template.source != "mimic":
             return self._t("empty.no_reference")
         reference_q = (template.reference_question or "").strip()

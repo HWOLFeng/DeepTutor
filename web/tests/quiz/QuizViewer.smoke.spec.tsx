@@ -88,6 +88,7 @@ function renderViewer(questions: QuizQuestion[], props: {
   sessionId?: string | null;
   turnId?: string | null;
   setTitle?: string;
+  onGenerateVariants?: (question: QuizQuestion) => void;
 } = {}) {
   return render(
     <StrictMode>
@@ -96,6 +97,7 @@ function renderViewer(questions: QuizQuestion[], props: {
         sessionId={props.sessionId ?? null}
         turnId={props.turnId ?? null}
         setTitle={props.setTitle ?? ""}
+        onGenerateVariants={props.onGenerateVariants}
         language="en"
       />
     </StrictMode>,
@@ -228,6 +230,35 @@ describe("QuizViewer smoke", () => {
     // Chips are also a navigation surface.
     await user.click(screen.getByRole("button", { name: "1" }));
     expect(screen.getByText("What is the capital of France?")).toBeInTheDocument();
+  });
+
+  it("offers 举一反三 for the question on screen", async () => {
+    const user = userEvent.setup();
+    const onGenerateVariants = vi.fn();
+    // Available before answering: a question worth more of is worth more of
+    // whether or not the learner got it right.
+    renderViewer([choiceQuestion], {
+      sessionId: "session-1",
+      turnId: "turn-1",
+      onGenerateVariants,
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "More questions like this" }),
+    );
+
+    expect(onGenerateVariants).toHaveBeenCalledTimes(1);
+    expect(onGenerateVariants.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ question_id: "q_1" }),
+    );
+  });
+
+  it("shows no variant action when the surface cannot start a batch", () => {
+    renderViewer([choiceQuestion]);
+
+    expect(
+      screen.queryByRole("button", { name: "More questions like this" }),
+    ).toBeNull();
   });
 
   it("persists each submit and records results once every question is answered (mock API)", async () => {

@@ -259,7 +259,7 @@ quiz_step:
     ## Already-generated questions this turn (do NOT duplicate)
     {previous_questions}
 
-    ## Reference material (mimic mode only — paraphrase / shadow this question's style and difficulty rather than inventing a fresh stem)
+    ## Reference material (mimic / variants modes only — follow the instruction written inside this block)
     {reference_block}
 
     Begin work on question {question_id}.
@@ -344,6 +344,7 @@ empty:
   no_explore_summary: "(exploration summary unavailable — proceed using only the user's request)"
   no_exploration_trace: "(no exploration trace — mimic mode skipped Phase 1; rely on the reference material and template fields)"
   no_reference: "(no reference material — this is a generative custom question)"
+  no_seed_answer: "(the seed has no reference answer — solve the variant yourself and keep it checkable)"
 
 # ---------------------------------------------------------------------------
 # Exploration trace rendering (markdown headings used when serializing the
@@ -354,3 +355,35 @@ trace:
   iteration_tool_call: "Iteration {n} — Tool call: {tool}"
   iteration_tool_result: "Iteration {n} — Tool result (summarized): {tool}"
   finish_note: "Final exploration preface (also shown to the user)"
+
+# ---------------------------------------------------------------------------
+# 举一反三 (variants): seed → new question
+# ---------------------------------------------------------------------------
+# Used instead of the mimic reference block when ``templates_override`` came
+# from questions the learner picked (``QuizTemplate.source == "variant"``).
+variants:
+  title_suffix: " · variants"
+  default_title: "Variant set"
+  block: |-
+    ## 举一反三 — write a NEW question from this seed
+
+    The learner picked this question and asked for more like it. Keep its
+    knowledge point, question type and difficulty band; change the surface:
+    different numbers, context or phrasing, and a genuinely different answer.
+
+    Hard rules:
+    - Never reuse the seed's stem, options or answer text. A learner must not
+      be able to answer by matching the seed.
+    - Keep the question type exactly. If the seed is multiple choice, the new
+      question is multiple choice with its own plausible distractors; if it is
+      fill-in-the-blank, it has exactly one blank.
+    - The variant must be answerable and checkable on its own: give a correct
+      answer and a short explanation of why it is correct.
+    - If the seed is one the learner got wrong, target the same mistake
+      (the same misconception) with fresh numbers so it repairs that gap.
+
+    Seed question:
+    {seed_question}
+
+    Seed answer:
+    {seed_answer}

@@ -10,6 +10,24 @@ import {
 
 export type DeepQuestionMode = "custom" | "mimic";
 
+/**
+ * One question the learner picked as a seed for 举一反三.
+ *
+ * The generator writes a *new* question that keeps the seed's knowledge point,
+ * type and difficulty band but changes the surface, so the shape fields matter:
+ * a multiple-choice seed has to produce a multiple-choice variant.
+ */
+export interface QuizSeed {
+  question: string;
+  question_type: NormalizedQuizQuestionType;
+  options?: Record<string, string>;
+  correct_answer?: string;
+  explanation?: string;
+  difficulty?: string;
+  /** What the seed practises; used for the generated set's name. */
+  topic?: string;
+}
+
 export interface DeepQuestionFormConfig {
   mode: DeepQuestionMode;
   topic: string;
@@ -29,6 +47,11 @@ export interface DeepQuestionFormConfig {
   per_type_counts: Partial<Record<NormalizedQuizQuestionType, number>>;
   paper_path: string;
   max_questions: number;
+  /**
+   * Questions the learner selected and asked to see more like. Non-empty means
+   * "举一反三": generation is seeded by these instead of by the topic.
+   */
+  seeds: QuizSeed[];
 }
 
 export const DEFAULT_QUIZ_CONFIG: DeepQuestionFormConfig = {
@@ -40,6 +63,7 @@ export const DEFAULT_QUIZ_CONFIG: DeepQuestionFormConfig = {
   per_type_counts: {},
   paper_path: "",
   max_questions: 10,
+  seeds: [],
 };
 
 export interface QuizQuestion {
@@ -296,6 +320,15 @@ export function summarizeQuizConfig(
       `${tr("Max")} ${cfg.max_questions}`,
     ].join(" · ");
   }
+  if (cfg.seeds.length > 0) {
+    // A seeded batch is named after its seeds, not after a topic: saying
+    // "Custom · 3 questions" would hide the one thing that makes it different.
+    return [
+      tr("Variants"),
+      `${cfg.seeds.length} ${tr("seeds")}`,
+      `${cfg.num_questions} ${tr("questions")}`,
+    ].join(" · ");
+  }
   const typeSummary =
     cfg.question_types.length === 0
       ? tr("Auto")
@@ -332,11 +365,28 @@ export function buildQuizWSConfig(
     Object.keys(cfg.per_type_counts).length > 0 &&
     Object.values(cfg.per_type_counts).reduce((sum, v) => sum + (v || 0), 0) ===
       cfg.num_questions;
+  const seeds = (cfg.seeds ?? []).filter((seed) => seed.question?.trim());
   return {
     mode: "custom",
     num_questions: cfg.num_questions,
     difficulty: cfg.difficulty === "auto" ? "" : cfg.difficulty,
     question_types: cfg.question_types,
     per_type_counts: countsValid ? cfg.per_type_counts : {},
+    // Seeds are the whole request in 举一反三: the backend turns each one into
+    // a template and writes a new question from it. Omitted when empty so a
+    // topic-driven quiz is unchanged on the wire.
+    ...(seeds.length > 0
+      ? {
+          seed_questions: seeds.map((seed) => ({
+            question: seed.question.trim(),
+            question_type: seed.question_type,
+            options: seed.options ?? {},
+            correct_answer: seed.correct_answer ?? "",
+            explanation: seed.explanation ?? "",
+            difficulty: seed.difficulty ?? "",
+            topic: seed.topic ?? "",
+          })),
+        }
+      : {}),
   };
 }

@@ -3,4 +3,6 @@ status:
   parsing_uploaded: "正在解析上传的试卷并提取题型模板..."
   parsing_directory: "正在加载已解析的试卷并提取题型模板..."
   mimic_needs_paper: "仿题模式需要上传 PDF 或提供已解析的试卷目录。"
+  variants_ready: "正在为选中的题目生成 {count} 道变式题..."
+  variants_invalid_seeds: "无法读取选中的题目，请重新选择。"
   llm_call_failed: "LLM 调用失败。"

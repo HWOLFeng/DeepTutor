@@ -106,6 +106,11 @@ import { useContextBudget } from "@/hooks/useContextBudget";
 import { useMeasuredHeight } from "@/hooks/useMeasuredHeight";
 import { useSetupSync } from "@/hooks/useSetupSync";
 import { consumePendingPrompt } from "@/lib/pending-prompt";
+import { consumePendingQuizSeeds } from "@/lib/pending-quiz-seeds";
+import {
+  startVariantChat,
+  variantAskFromCardMessage,
+} from "@/lib/variant-launch";
 import {
   fetchSessionAskHint,
   updateSessionOrganization,
@@ -115,6 +120,7 @@ import {
   DEFAULT_QUIZ_CONFIG,
   buildQuizWSConfig,
   type DeepQuestionFormConfig,
+  type QuizQuestion,
 } from "@/lib/quiz-types";
 import {
   DEFAULT_VISUALIZE_CONFIG,
@@ -454,6 +460,24 @@ export default function ChatWorkspace() {
   const [quizConfig, setQuizConfig] = useState<DeepQuestionFormConfig>({
     ...DEFAULT_QUIZ_CONFIG,
   });
+  // 举一反三 hand-off: seeds picked in the bank (or from a quiz card) arrive in
+  // sessionStorage before this route mounted. Consume them once and pre-fill
+  // the quiz config — the learner only has to say what they want and send.
+  const pendingQuizSeedsRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || pendingQuizSeedsRef.current) return;
+    const seeds = consumePendingQuizSeeds();
+    if (seeds.length === 0) return;
+    pendingQuizSeedsRef.current = true;
+    setQuizConfig((previous) => ({
+      ...previous,
+      mode: "custom",
+      seeds,
+      // One variant per seed is the default ask; a learner who picked three
+      // questions gets three new ones, not the composer's previous count.
+      num_questions: Math.max(previous.num_questions, seeds.length),
+    }));
+  }, []);
   const [quizValidationErrors, setQuizValidationErrors] = useState<string[]>(
     [],
   );
@@ -717,6 +741,31 @@ export default function ChatWorkspace() {
     setQuizPdf(file);
     setCapabilityConfigConfirmed(false);
   }, []);
+  /**
+   * 举一反三 from a quiz card: that question becomes the only seed of a new
+   * batch. The variant chat is a fresh conversation on purpose — its generated
+   * quiz is its own practice set, not a second set inside the one being read.
+   */
+  const handleGenerateVariants = useCallback(
+    (question: QuizQuestion) => {
+      startVariantChat(
+        [
+          {
+            question: question.question,
+            question_type: question.question_type,
+            options: question.options,
+            correct_answer: question.correct_answer,
+            explanation: question.explanation,
+            difficulty: question.difficulty,
+            topic: question.concentration,
+          },
+        ],
+        variantAskFromCardMessage(3, t),
+        (href) => router.push(href),
+      );
+    },
+    [router, t],
+  );
   const handleChangeVisualizeConfig = useCallback(
     (next: VisualizeFormConfig) => {
       setVisualizeConfig(next);
@@ -2693,6 +2742,7 @@ export default function ChatWorkspace() {
                         onSubmitUserReply={submitUserReply}
                         onAnswerMasteryQuestion={answerMasteryQuestion}
                         onSkipMasteryQuestion={skipMasteryQuestion}
+                        onGenerateVariants={handleGenerateVariants}
                         onChallengeMasteryQuestion={(questionId) => handleSend(t('Please review assessment {{questionId}} against its original source evidence. If it is unsupported, invalidate it and recompute learning state. Do not grant mastery merely because I challenged it.', { questionId }))}
                         onLoadMessageTrace={(messageId) =>
                           state.sessionId

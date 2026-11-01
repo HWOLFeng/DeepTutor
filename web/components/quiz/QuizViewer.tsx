@@ -86,6 +86,11 @@ interface QuizViewerProps {
    * conversation title server-side.
    */
   setTitle?: string;
+  /**
+   * Ask for more questions like the one on screen (举一反三). Omitted on
+   * surfaces with nowhere to start a batch, so the action never dead-ends.
+   */
+  onGenerateVariants?: (question: QuizQuestion) => void;
   language?: string;
 }
 
@@ -200,6 +205,7 @@ export default function QuizViewer({
   sessionId,
   turnId,
   setTitle = "",
+  onGenerateVariants,
   language = "en",
 }: QuizViewerProps) {
   const { t } = useTranslation();
@@ -923,6 +929,20 @@ export default function QuizViewer({
             <span className="rounded-md bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
               {q.question_type}
             </span>
+            {onGenerateVariants && (
+              // Available before answering too: a question the learner found
+              // interesting is worth more of, whether or not they got it right.
+              <Tooltip label={t("More questions like this")}>
+                <button
+                  type="button"
+                  onClick={() => onGenerateVariants(q)}
+                  aria-label={t("More questions like this")}
+                  className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--primary)]"
+                >
+                  <Sparkles size={14} strokeWidth={1.9} />
+                </button>
+              </Tooltip>
+            )}
           </div>
 
           {ans.submitted && (

@@ -3,4 +3,6 @@ status:
   parsing_uploaded: "Parsing uploaded exam paper and extracting templates..."
   parsing_directory: "Loading parsed exam paper and extracting templates..."
   mimic_needs_paper: "Mimic mode requires either an uploaded PDF or a parsed exam directory."
+  variants_ready: "Writing {count} variant question(s) of the questions you picked..."
+  variants_invalid_seeds: "The selected questions could not be read; pick them again."
   llm_call_failed: "LLM call failed."

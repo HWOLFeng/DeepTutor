@@ -68,6 +68,7 @@ import {
   extractQuizSetTitle,
   extractQuizTurnId,
   extractStreamingQuizQuestions,
+  type QuizQuestion,
 } from "@/lib/quiz-types";
 import { extractVisualizeResult } from "@/lib/visualize-types";
 import type { StreamEvent } from "@/features/chat/model/protocol";
@@ -702,6 +703,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   onAnswerMasteryQuestion,
   onSkipMasteryQuestion,
   onChallengeMasteryQuestion,
+  onGenerateVariants,
   researchRequestSnapshot,
   onTraceToggle,
   masteryGrades,
@@ -773,6 +775,11 @@ export const AssistantMessage = memo(function AssistantMessage({
     questionId: string,
   ) => void | boolean | Promise<void | boolean>;
   onChallengeMasteryQuestion?: (questionId: string) => void | boolean | Promise<void | boolean>;
+  /**
+   * Ask for more questions like one the learner just answered. The card stays
+   * a quiz card; this starts a seeded 举一反三 batch from that question.
+   */
+  onGenerateVariants?: (question: QuizQuestion) => void;
 }) {
   const { t } = useTranslation();
   const events = useMemo(() => msg.events ?? [], [msg.events]);
@@ -1204,6 +1211,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             sessionId={sessionId}
             turnId={quizTurnId}
             setTitle={quizSetTitle}
+            onGenerateVariants={onGenerateVariants}
             language={language}
           />
         </>
@@ -2104,6 +2112,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   onAnswerMasteryQuestion,
   onSkipMasteryQuestion,
   onChallengeMasteryQuestion,
+  onGenerateVariants,
   showModeBadge = true,
   onLoadMessageTrace,
   onReleaseMessageTrace,
@@ -2168,6 +2177,8 @@ export const ChatMessageList = memo(function ChatMessageList({
     questionId: string,
   ) => void | boolean | Promise<void | boolean>;
   onChallengeMasteryQuestion?: (questionId: string) => void | boolean | Promise<void | boolean>;
+  /** Start a 举一反三 batch from one question of a generated quiz. */
+  onGenerateVariants?: (question: QuizQuestion) => void;
   /** Names of KBs confirmed to exist. Omitted when the KB list is unavailable. */
   availableKbNames?: Set<string>;
   /** Qualified KB ref -> display name, from the same catalog the composer
@@ -2526,6 +2537,7 @@ export const ChatMessageList = memo(function ChatMessageList({
                 onAnswerMasteryQuestion={onAnswerMasteryQuestion}
                 onSkipMasteryQuestion={onSkipMasteryQuestion}
                 onChallengeMasteryQuestion={onChallengeMasteryQuestion}
+                onGenerateVariants={onGenerateVariants}
                 researchRequestSnapshot={
                   pairedUserMessage?.requestSnapshot ?? null
                 }

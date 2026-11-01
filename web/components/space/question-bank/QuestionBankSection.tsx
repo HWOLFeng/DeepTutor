@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, ClipboardList, Inbox, Loader2, Search } from "lucide-react";
 import SpaceSectionHeader from "@/components/space/SpaceSectionHeader";
 import BankScopeRail from "./BankScopeRail";
@@ -10,6 +11,8 @@ import BankToolbar from "./BankToolbar";
 import CategoryManager from "./CategoryManager";
 import QuestionCard from "./QuestionCard";
 import { useQuestionBank } from "./useQuestionBank";
+import { MAX_VARIANT_SEEDS, variantSeedSelection } from "@/lib/quiz-seeds";
+import { startVariantChat, variantAskMessage } from "@/lib/variant-launch";
 
 function EmptyState({
   icon: Icon,
@@ -56,6 +59,7 @@ export default function QuestionBankSection({
   onChanged?: () => void;
 }) {
   const { t } = useTranslation();
+  const router = useRouter();
   const bank = useQuestionBank({ mistakesOnly, initialMaterialId, initialMaterialTitle });
   useEffect(() => {
     onChanged?.();
@@ -64,6 +68,19 @@ export default function QuestionBankSection({
 
   const selectedIds = Array.from(bank.selectedIds);
   const searching = bank.searchInput.trim().length > 0;
+
+  // 举一反三 from the bank: the selected questions seed a new quiz in the
+  // composer. The chat is a different route, so the seeds and the ask travel
+  // by one-shot sessionStorage hand-offs rather than a query string.
+  const generateVariants = useCallback(() => {
+    const selected = bank.items.filter(item => bank.selectedIds.has(item.id));
+    const { seeds } = variantSeedSelection(selected);
+    startVariantChat(
+      seeds,
+      variantAskMessage(seeds.length, t),
+      href => router.push(href),
+    );
+  }, [bank.items, bank.selectedIds, router, t]);
 
   return (
     <div className="space-y-3">
@@ -269,6 +286,8 @@ export default function QuestionBankSection({
               if (ok) bank.clearSelection();
               return ok;
             }}
+            onGenerateVariants={generateVariants}
+            variantSeedLimit={MAX_VARIANT_SEEDS}
           />
         </>
       )}

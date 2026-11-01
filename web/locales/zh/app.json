@@ -6226,5 +6226,16 @@
   "Checking answers": "核对答案",
   "Structuring questions": "整理题目",
   "Saving figures": "保存题图",
-  "{{count}} duplicate questions on the same figure were merged.": "同一张图上的 {{count}} 道重复题目已合并。"
+  "{{count}} duplicate questions on the same figure were merged.": "同一张图上的 {{count}} 道重复题目已合并。",
+  "Similar questions": "举一反三",
+  "Pick at most {{count}} questions to seed a variant set.": "最多选择 {{count}} 道题作为变式种子。",
+  "Write new questions like these, as one named practice set.": "基于这些题写出新题，落成一个命名的练习组。",
+  "Make new questions like the {{count}} I picked: same knowledge points and types, one step harder, and name the set after what it practises.": "就我选的这 {{count}} 道题举一反三：知识点和题型保持一致，难度略高一级，并按这组题练什么给它命名。",
+  "More questions like this": "再来几道类似的",
+  "Make 3 new questions like this one: same knowledge point and type, a little harder, and name the set after what it practises.": "就这道题举一反三，再出 3 道：知识点和题型保持一致，难度略高一级，并按这组题练什么给它命名。",
+  "Seeds ({{count}})": "种子题（{{count}}）",
+  "Remove seed {{index}}": "移除第 {{index}} 个种子题",
+  "Each seed produces one new question that keeps its knowledge point, type and difficulty but changes the surface.": "每道种子题生成一道新题：知识点、题型和难度档位不变，题面改变。",
+  "Variants": "变式题",
+  "seeds": "道种子"
 }

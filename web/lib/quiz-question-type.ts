@@ -17,6 +17,8 @@ export const QUIZ_QUESTION_TYPES: ReadonlyArray<NormalizedQuizQuestionType> = [
 
 const QUESTION_TYPE_ALIASES: Record<string, NormalizedQuizQuestionType> = {
   choice: "choice",
+  single_choice: "choice",
+  multi_choice: "choice",
   multiple_choice: "choice",
   "multiple-choice": "choice",
   mcq: "choice",
@@ -26,6 +28,7 @@ const QUESTION_TYPE_ALIASES: Record<string, NormalizedQuizQuestionType> = {
   tf: "concept",
   judgement: "concept",
   fill_in_blank: "fill_in_blank",
+  fill_blank: "fill_in_blank",
   "fill-in-the-blank": "fill_in_blank",
   fill_in_the_blank: "fill_in_blank",
   cloze: "fill_in_blank",

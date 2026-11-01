@@ -17,6 +17,19 @@ The identity/rendering side is product code; this playbook owns the judgement �
 picking seeds, choosing the variant move per question type, keeping the
 difficulty ladder honest, naming the set, and reporting back.
 
+## Two ways to run it
+
+- **In the app (preferred when it is available).** The bank's selection bar has
+  «相似题» and each quiz card has ✨ «再来几道类似的». Both open the quiz
+  composer with the picked questions as seeds; the learner sends and the set is
+  filed automatically. Do not re-do that flow in chat — point the learner at
+  the button instead.
+- **In a conversation (this skill).** When there is no composer to seed — a
+  partner/IM turn, a text-only surface, or the learner simply asks in chat —
+  generate the questions yourself and file them with
+  `question_bank(action="record_set")` (step 6). Use this only when the in-app
+  entry cannot do the job, so the same batch does not end up in two places.
+
 ## 1. Pin the seeds
 
 Seeds are the questions the learner actually selected or quoted. Read them from
@@ -67,7 +80,8 @@ Hard rules:
 ## 4. Keep the difficulty honest
 
 Default ladder over N variants: start at the seeds' difficulty, and move at most
-one band up:
+one band up. The app applies exactly this ladder (the last third steps up), so
+match it when generating in chat:
 
 - `easy → easy, easy, medium`
 - `medium → medium, medium, hard`
