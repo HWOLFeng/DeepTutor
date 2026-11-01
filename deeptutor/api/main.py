@@ -37,6 +37,31 @@ class _SuppressWsNoise(logging.Filter):
 
 logging.getLogger("uvicorn.error").addFilter(_SuppressWsNoise())
 
+#: One shutdown step that never returns must not keep the process (and the dev
+#: reloader) alive forever: each step is bounded, and a timeout is logged so the
+#: next wedge names the dependency instead of hanging silently.
+SHUTDOWN_STEP_TIMEOUT_SECONDS = 4.0
+
+
+async def _run_shutdown_step(name: str, step) -> None:
+    """Await one shutdown step, bounded; never raise.
+
+    ``step`` is a zero-argument callable returning an awaitable, so even an
+    import error inside the step is contained and logged instead of aborting
+    the remaining cleanup.
+    """
+    try:
+        await asyncio.wait_for(step(), timeout=SHUTDOWN_STEP_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Shutdown step %r exceeded %.0fs; continuing",
+            name,
+            SHUTDOWN_STEP_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001 - shutdown must reach the last step
+        logger.warning("Shutdown step %r failed: %s", name, exc)
+
+
 CONFIG_DRIFT_ERROR_TEMPLATE = (
     "Configuration Drift Detected: Capability tool references {drift} are not "
     "registered in the runtime tool registry. Register the missing tools or "
@@ -307,56 +332,41 @@ async def lifespan(app: FastAPI):
     if module_enabled("knowledge"):
         install_progress_ports(broadcast=None, emit_task_event=None)
 
-    try:
-        await background_supervisor.close()
-        logger.info("Leader-owned background services stopped")
-    except Exception as e:
-        logger.warning(f"Failed to stop background leader: {e}")
-
-    try:
-        await application_container.close()
-        logger.info("Application container closed")
-    except Exception as e:
-        logger.warning(f"Failed to close application container: {e}")
+    # Every step below is a dependency we do not control; each one is bounded so
+    # a stuck close cannot turn a reload (or `docker stop`) into a hang. Order
+    # matters: services drain before the pools they use are closed.
+    await _run_shutdown_step("background leader", background_supervisor.close)
+    await _run_shutdown_step("application container", application_container.close)
 
     # Close MCP server connections. Each one owns an AsyncExitStack inside its
     # own task, so they must be torn down here rather than left to interpreter
     # exit (stdio servers would otherwise leak child processes).
-    try:
+    async def _close_mcp() -> None:
         from deeptutor.services.mcp import get_mcp_manager
 
         await get_mcp_manager().shutdown()
-        logger.info("MCP connections closed")
-    except Exception as e:
-        logger.warning(f"Failed to close MCP connections: {e}")
+
+    await _run_shutdown_step("MCP connections", _close_mcp)
 
     # Close pooled LLM SDK clients so their keep-alive sockets and transports
     # are released deterministically instead of waiting for interpreter GC.
-    try:
-        from deeptutor.services.llm.provider_factory import close_runtime_provider_pool
+    async def _close_llm_pools() -> None:
+        from deeptutor.runtime.agentic.client import close_agentic_client_pool
+        from deeptutor.services.llm.provider_factory import (
+            close_runtime_provider_pool,
+        )
 
         await close_runtime_provider_pool()
-        logger.info("LLM provider pool closed")
-    except Exception as e:
-        logger.warning(f"Failed to close LLM provider pool: {e}")
-
-    try:
-        from deeptutor.runtime.agentic.client import close_agentic_client_pool
-
         await close_agentic_client_pool()
-        logger.info("Agentic LLM client pool closed")
-    except Exception as e:
-        logger.warning(f"Failed to close agentic LLM client pool: {e}")
 
-    # Stop EventBus
-    try:
+    await _run_shutdown_step("LLM client pools", _close_llm_pools)
+
+    async def _stop_event_bus() -> None:
         from deeptutor.events.event_bus import get_event_bus
 
-        event_bus = get_event_bus()
-        await event_bus.stop()
-        logger.info("EventBus stopped")
-    except Exception as e:
-        logger.warning(f"Failed to stop EventBus: {e}")
+        await get_event_bus().stop()
+
+    await _run_shutdown_step("event bus", _stop_event_bus)
 
 
 from deeptutor.services.workspace.activity import WorkspaceActivityMiddleware
