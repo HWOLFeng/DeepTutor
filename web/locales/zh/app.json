@@ -6267,5 +6267,8 @@
   "planner.draft.blocksHint": "依附任务：取消任务会一并取消",
   "planner.draft.status.applied": "已写入",
   "planner.draft.status.undone": "已撤回",
-  "planner.draft.status.expired": "已过期"
+  "planner.draft.status.expired": "已过期",
+  "planner.draft.loading": "正在读取草稿…",
+  "planner.draft.missing": "这份草稿已过期，无法再审阅。",
+  "planner.draft.superseded": "这条回复里还有 {{n}} 份更早的草稿，已被取代"
 }

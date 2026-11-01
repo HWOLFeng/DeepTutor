@@ -6242,5 +6242,8 @@
   "planner.draft.blocksHint": "Залежить від завдання — скасування завдання скасує й цей блок",
   "planner.draft.status.applied": "Записано",
   "planner.draft.status.undone": "Скасовано",
-  "planner.draft.status.expired": "Термін минув"
+  "planner.draft.status.expired": "Термін минув",
+  "planner.draft.loading": "Завантаження чернетки…",
+  "planner.draft.missing": "Термін цієї чернетки минув, її більше не можна переглянути.",
+  "planner.draft.superseded": "{{n}} попередн(я/і) чернетк(а/и) у цій відповіді, замінено"
 }

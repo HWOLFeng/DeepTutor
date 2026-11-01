@@ -6242,5 +6242,8 @@
   "planner.draft.blocksHint": "Zależy od zadania — odznaczenie zadania odznacza też ten blok",
   "planner.draft.status.applied": "Zapisano",
   "planner.draft.status.undone": "Wycofano",
-  "planner.draft.status.expired": "Wygasło"
+  "planner.draft.status.expired": "Wygasło",
+  "planner.draft.loading": "Wczytywanie szkicu…",
+  "planner.draft.missing": "Ten szkic wygasł i nie można go już przejrzeć.",
+  "planner.draft.superseded": "{{n}} wcześniejszy/e szkic(e) w tej odpowiedzi, zastąpione"
 }

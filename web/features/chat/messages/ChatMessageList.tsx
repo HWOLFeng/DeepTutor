@@ -101,6 +101,8 @@ import { extractSetupCredential } from "@/lib/setup-signals";
 import { PartnerDraftCard } from "@/components/chat/home/PartnerDraftCard";
 import { extractPartnerDraft } from "@/lib/partner-draft";
 import { extractMasteryHandoffs } from "@/lib/mastery-handoff";
+import { latestDraftId, supersededDraftIds } from "@/lib/planner-state";
+import PlanDraftPanel from "@/features/planner/components/PlanDraftPanel";
 import ContextReferenceTree, {
   type ContextTreeItem,
 } from "@/components/chat/home/ContextReferenceTree";
@@ -947,6 +949,12 @@ export const AssistantMessage = memo(function AssistantMessage({
     [msg.events],
   );
 
+  // A plan draft produced by ``plan_week``. The turn keeps only the newest id:
+  // a revised plan supersedes the one before it, and offering both would let
+  // the learner accept something the answer has already moved past.
+  const planDraftId = useMemo(() => latestDraftId(msg.events), [msg.events]);
+  const supersededPlans = useMemo(() => supersededDraftIds(msg.events), [msg.events]);
+
   const body = msg.content;
 
   // Interleaved segments for the default chat surface: the message is laid
@@ -1282,6 +1290,12 @@ export const AssistantMessage = memo(function AssistantMessage({
       !latestMasteryQuestion &&
       askUserPayload ? (
         <AskUserOptions data={askUserPayload} onSubmit={submitReply} />
+      ) : null}
+      {planDraftId ? <PlanDraftPanel draftId={planDraftId} /> : null}
+      {supersededPlans.length > 0 ? (
+        <p className="planner-draft__superseded" role="status">
+          {t('planner.draft.superseded', { n: supersededPlans.length })}
+        </p>
       ) : null}
       {/* Credential hand-off sits below whichever body branch rendered: it
           supplements the answer ("here's where to paste the key") rather than

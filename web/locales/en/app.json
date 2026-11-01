@@ -6267,5 +6267,8 @@
   "planner.draft.blocksHint": "Follows its task — dismissing the task dismisses this",
   "planner.draft.status.applied": "Written",
   "planner.draft.status.undone": "Taken back",
-  "planner.draft.status.expired": "Expired"
+  "planner.draft.status.expired": "Expired",
+  "planner.draft.loading": "Loading the draft…",
+  "planner.draft.missing": "This draft has expired, so it can no longer be reviewed.",
+  "planner.draft.superseded": "{{n}} earlier draft(s) from this reply, superseded"
 }

@@ -6220,5 +6220,8 @@
   "planner.draft.blocksHint": "Gehört zur Aufgabe – wird beim Abwählen mit abgewählt",
   "planner.draft.status.applied": "Geschrieben",
   "planner.draft.status.undone": "Zurückgenommen",
-  "planner.draft.status.expired": "Abgelaufen"
+  "planner.draft.status.expired": "Abgelaufen",
+  "planner.draft.loading": "Entwurf wird geladen …",
+  "planner.draft.missing": "Dieser Entwurf ist abgelaufen und kann nicht mehr geprüft werden.",
+  "planner.draft.superseded": "{{n}} frühere(r) Entwurf/Entwürfe aus dieser Antwort, überholt"
 }

@@ -6374,5 +6374,8 @@
   "planner.draft.blocksHint": "Suit sa tâche — la désélectionner le désélectionne aussi",
   "planner.draft.status.applied": "Écrit",
   "planner.draft.status.undone": "Annulé",
-  "planner.draft.status.expired": "Expiré"
+  "planner.draft.status.expired": "Expiré",
+  "planner.draft.loading": "Chargement du brouillon…",
+  "planner.draft.missing": "Ce brouillon a expiré et ne peut plus être relu.",
+  "planner.draft.superseded": "{{n}} brouillon(s) plus ancien(s) dans cette réponse, remplacé(s)"
 }
