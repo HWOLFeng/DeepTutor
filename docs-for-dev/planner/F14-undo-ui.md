@@ -2,12 +2,12 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`f27f3491`）|
 | 里程碑 | M2 |
 | 依赖 | F10、F13 |
 | 回滚 | `git revert <sha>`。回滚后只能通过 API 撤回，界面上没有按钮 |
 
-**环境前置**：Node 22 + `npm ci`，否则只能静态检查。
+**环境前置**：Node 22.12+ 与 `web/` 内 `npm ci --legacy-peer-deps`（F11 已备好）。
 
 ## 背景
 
@@ -23,7 +23,8 @@
 2. 点击「撤销」→ 二次确认（一行内联确认，不弹模态）→ `POST /api/planner/undo/{token}`；
 3. 成功：该行变为 `已撤销 4 条`，勾选区隐藏，条目置灰并标「已删除」/「已修改，未撤回」；
 4. **部分撤回**：接口返回 `skipped` 非空时，逐条列出「已修改，未撤回：<标题>」，不要笼统说「部分失败」；
-5. 失败（404 / 409 / 500）：保留按钮可重试，显示可读原因；
+5. 失败（404 / 409 / 500）：**确认条保持打开**、显示可读原因——用户本来就想撤回，重试应当是一次点击，
+   而不是再走一遍同一个问题；
 6. 已撤销的卡片刷新后仍是「已撤销」（状态来自 `GET /drafts/{id}` 的 `status`，不在本地记忆）；
 7. 不使用 toast 作为唯一反馈——结果必须留在卡片上。
 
@@ -61,8 +62,23 @@ npm run typecheck && npm run i18n:check
 6. `already_undone: true` → 直接呈现「已撤销」而非报错；
 7. 刷新后（用 `status: "undone"` 的草稿桩）仍显示「已撤销」。
 
+实测结果：
+
+```bash
+cd web
+npx vitest run tests/plan-draft-undo.spec.tsx                       # 7 passed
+npx vitest run tests/plan-draft-card.spec.tsx \
+               tests/plan-draft-chat.spec.tsx \
+               tests/plan-draft-undo.spec.tsx                      # 28 passed
+npm run typecheck                                                   # exit 0
+npm run i18n:parity                                                 # OK
+```
+
+覆盖的边界：确认条可取消（不发请求）、`skipped` 逐条列名、`already_undone` 当「已撤销」而非报错、
+失败后确认条保持打开、刷新后从 `apply_result` 恢复「已写入 + 撤销」状态。
+
 ## 交付
 
-- 产出物：卡片撤回入口 + 测试 + 文案
+- 产出物：`PlanDraftCard` 的「已写入 / 撤销 / 已撤销」三态 + `undoBatch()` + 测试 + 6 语言 6 个 key
 - 证据：命令输出（无 Node 则注明「未执行」）
 - 通过后：本文件状态改 `☑ 已验收` + commit sha，然后提交

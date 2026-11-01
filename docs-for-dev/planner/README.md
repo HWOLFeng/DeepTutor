@@ -50,7 +50,7 @@
 | [F11](F11-draft-card.md) | 采纳卡片 | M2 | F09 | ☑ |
 | [F12](F12-inline-edit.md) | 卡内改期 | M2 | F11 | ☐ |
 | [F13](F13-chat-render.md) | 聊天渲染接入 | M2 | F11 | ☑ |
-| [F14](F14-undo-ui.md) | 撤回入口 | M2 | F10,F13 | ☐ |
+| [F14](F14-undo-ui.md) | 撤回入口 | M2 | F10,F13 | ☑ |
 | [F15](F15-reject-reasons.md) | 拒绝原因与会话去重 | M2 | F02,F13 | ☐ |
 | [F16](F16-skill.md) | learning-plan skill | M3 | F08,F11 | ☐ |
 | [F17](F17-entry-chips.md) | 首页入口 | M3 | F11 | ☐ |
@@ -108,5 +108,6 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F10 整批撤回 | `e77f73f8` | 新增 `10 passed`；`tests/multi_user` 任务板/日历 `37 passed`；契约 `check` 通过 |
 | 2026-11-01 | F11 采纳卡片 | `88dcac1a` | vitest `11 passed`；`typecheck` exit 0；`i18n:parity` OK（audit 失败经基线确认为既有） |
 | 2026-11-01 | F13 聊天渲染接入 | `f0ae1884` | 新增 `10 passed`；消息列表集成测试 `27 passed`；`typecheck` exit 0 |
+| 2026-11-01 | F14 撤回入口 | `f27f3491` | 新增 `7 passed`；规划前端三套件 `28 passed`；`typecheck` exit 0 |
 | 2026-11-01 | F04 裁撤 | — | 草稿 id 已随 `tool_result.metadata` 到达前端，新增事件类型会造成两个真相来源；F13 改为读 metadata |
 | 2026-11-01 | 契约工具链打通 | `ce1a9139` | 用 `/tmp` 的临时 Node 22.11 完成 `openapi.json` + `generated/api.ts` 重生成，两端 `--check` 通过 |
