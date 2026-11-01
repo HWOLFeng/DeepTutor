@@ -63,6 +63,8 @@ installation before deciding to reinstall it.
   contract for generating variant sets from questions the learner picked.
 - [Practice import rework](PRACTICE_IMPORT_REWORK.md) *(中文)*: why the importer
   checks answers itself, and what is still unreliable.
+- [Releasing](RELEASING.md) *(中文)*: commit and push to GitHub, build the
+  production image, push it to GHCR, and pull it on the server.
 - [Video learning](watching-workspace.md) and [voice](VOICE_CONFIGURATION.md):
   Reading media migration, captions, speech adapters and verification.
 - [Answer-quality diagnosis](REASONING_SAFETY_CHECKLIST.md): reproducible

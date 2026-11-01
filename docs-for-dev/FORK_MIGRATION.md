@@ -87,6 +87,9 @@
 
 ## 2. Windows 上构建自定义镜像
 
+> 完整的「提交代码 → 构建 → 推送 GHCR → 服务器拉取」流程、token 权限、包可见性与
+> 常见问题，见 [RELEASING.md](RELEASING.md)。本节只保留构建命令的要点。
+
 前置：Docker Desktop（Linux containers）、约 20 GB 空闲磁盘、可访问 Docker Hub / GHCR。
 Windows 侧从零搭建环境（WSL2 + Ubuntu + Docker Engine，或原生 venv 回退）的完整步骤、
 代理与镜像源配置、常见坑，见 [WINDOWS_SETUP.md](WINDOWS_SETUP.md)。
