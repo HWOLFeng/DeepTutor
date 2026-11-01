@@ -45,7 +45,7 @@
 | [F07](F07-calendar-tool.md) | calendar 工具 | M1 | F06 | ☑ |
 | [F08](F08-plan-week.md) | plan_week 草稿生成 | M1 | F01,F05,F07 | ☑ |
 | [F09](F09-apply.md) | 采纳 API 与落库 | M1 | F08 | ☑ |
-| [F10](F10-undo.md) | 整批撤回 | M1 | F09 | ☐ |
+| [F10](F10-undo.md) | 整批撤回 | M1 | F09 | ☑ |
 | [F11](F11-draft-card.md) | 采纳卡片 | M2 | F04,F09 | ☐ |
 | [F12](F12-inline-edit.md) | 卡内改期 | M2 | F11 | ☐ |
 | [F13](F13-chat-render.md) | 聊天渲染接入 | M2 | F04,F11 | ☐ |
@@ -104,3 +104,4 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F07 calendar 工具 | `0f9d4985` | 新增 `21 passed`（含 links）；`tests/agents` → `511 passed`；`tests/modules` → `86 passed` |
 | 2026-11-01 | F08 plan_week | `572d76c3` | 新增 `36 passed`；零写入不变量已验证；`tests/agents` → `511 passed` |
 | 2026-11-01 | F09 采纳 API | `ce1a9139` | 新增 `15 passed`；契约双端 `--check` 通过；`tests/api` 失败数未增加（62 vs 基线 63）|
+| 2026-11-01 | F10 整批撤回 | `e77f73f8` | 新增 `10 passed`；`tests/multi_user` 任务板/日历 `37 passed`；契约 `check` 通过 |
