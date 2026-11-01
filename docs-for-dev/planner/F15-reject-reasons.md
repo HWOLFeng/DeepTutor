@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`dff26a7a`）|
 | 里程碑 | M2 |
 | 依赖 | F02、F13 |
 | 回滚 | `git revert <sha>`。回滚后 `plan_items.reason` 列残留（无害，旧代码不读） |
@@ -60,8 +60,41 @@ cd web && npm run test:unit -- tests/plan-draft-reasons.spec.tsx && npm run i18n
 6. 前端：取消勾选 → 三个标签出现；不选原因也能提交；选了原因则 `apply` 请求体含 `reasons`；
 7. 旧调用（不带 `reasons`）仍 200（向后兼容）。
 
+## 实现记录
+
+偏离与补充（均已写进代码注释）：
+
+1. **原因值用稳定 id**（`time` / `topic` / `duplicate`），标签文案走 i18n——不把中文当数据存；
+2. **`PlanItem` 增加 `reason` 字段**，这样 `GET /drafts/{id}` 会把原因一并返回（否则写进去也看不见），
+   代价是重新导出契约（`openapi.json` + `generated/api.ts` 已同步，两端 `--check` 通过）；
+3. **去重的查询放在 store**（`recent_dismissed_titles(session_id, hours=24)`），而不是在工具里拼 SQL；
+   归一化仍用 `planner.normalize_title`，与重复检测同一份规则；
+4. **工具会回报这件事**：`plan_week` 的结论里加一句「N 项因本会话最近拒绝过而未纳入」——
+   静默丢弃比重复提案更让人困惑；
+5. **重新勾选会清掉标签**：原因只解释拒绝，接受不需要解释。
+
+实测结果：
+
+```bash
+pytest tests/services/planner/test_plan_dedupe.py            # 14 passed
+pytest tests/api/test_planner_{router,undo}.py \
+       tests/api/test_router_loader.py \
+       tests/api/test_frontend_contract_export.py \
+       tests/services/planner tests/tools/test_planner_tools_* # 165 passed
+npx vitest run tests/plan-draft-*.spec.tsx tests/plan-starter-copy.spec.ts   # 47 passed
+npm run typecheck                                            # exit 0
+npm run i18n:parity                                          # OK
+```
+
+14 条后端用例覆盖：记忆只属于本会话、接受不记忆、24 小时过期、空会话不记忆、原因随拒绝存储、
+原因不能挂在接受上、未知条目报错、空白原因等同未填、超长原因截断不报错、**旧调用（不带 reasons）仍可用**；
+以及生成器一侧：被拒条目不产出、归一化与重复检测同源、不同标题不受影响。
+
+前端 6 条用例覆盖：仅拒绝后出现三个标签、选中随 apply 上送、不选也能提交、再点一次取消选中、
+重新勾选清掉标签、只为仍被拒的行携带标签。
+
 ## 交付
 
-- 产出物：迁移 + 去重逻辑 + 原因 UI + 两侧测试
+- 产出物：`reason` 列（幂等迁移）+ `recent_dismissed_titles()` + 生成器过滤 + 三个标签 + 两侧测试 + 重导出契约
 - 证据：两份测试输出
 - 通过后：本文件状态改 `☑ 已验收` + commit sha，然后提交
