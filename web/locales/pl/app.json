@@ -6251,5 +6251,11 @@
   "planner.draft.undoConfirm": "Na pewno wycofać?",
   "planner.draft.undone": "Wycofano {{n}}",
   "planner.draft.undoSkipped": "Zmienione później, więc zachowane: {{titles}}",
-  "planner.draft.undoFailed": "Nie udało się wycofać — spróbuj ponownie"
+  "planner.draft.undoFailed": "Nie udało się wycofać — spróbuj ponownie",
+  "planner.draft.edit": "Zmień",
+  "planner.draft.save": "Zapisz",
+  "planner.draft.dueDate": "Termin",
+  "planner.draft.startTime": "Godzina rozpoczęcia",
+  "planner.draft.duration": "Czas trwania (min)",
+  "planner.draft.editFailed": "Nie udało się zapisać zmiany — przywrócono"
 }

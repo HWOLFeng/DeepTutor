@@ -162,3 +162,52 @@
 .planner-draft__actions .planner-draft__confirm:hover:not(:disabled) {
   filter: brightness(1.05);
 }
+
+.planner-draft__edit {
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.planner-draft__edit:hover:not(:disabled) {
+  background: var(--accent);
+}
+.planner-draft__edit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.planner-draft__editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.planner-draft__editor input {
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: inherit;
+  font-size: 11px;
+}
+.planner-draft__editor input[type='number'] {
+  width: 56px;
+}
+.planner-draft__editor button {
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.planner-draft__editor button:hover:not(:disabled) {
+  background: var(--accent);
+}

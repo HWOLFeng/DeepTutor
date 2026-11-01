@@ -6383,5 +6383,11 @@
   "planner.draft.undoConfirm": "Vraiment annuler ?",
   "planner.draft.undone": "{{n}} annulé(s)",
   "planner.draft.undoSkipped": "Modifié(s) depuis, donc conservé(s) : {{titles}}",
-  "planner.draft.undoFailed": "Annulation impossible — réessayez"
+  "planner.draft.undoFailed": "Annulation impossible — réessayez",
+  "planner.draft.edit": "Modifier",
+  "planner.draft.save": "Enregistrer",
+  "planner.draft.dueDate": "Échéance",
+  "planner.draft.startTime": "Heure de début",
+  "planner.draft.duration": "Durée (min)",
+  "planner.draft.editFailed": "Modification non enregistrée — rétablie"
 }

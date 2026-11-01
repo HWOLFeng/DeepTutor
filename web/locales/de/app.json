@@ -6229,5 +6229,11 @@
   "planner.draft.undoConfirm": "Wirklich zurücknehmen?",
   "planner.draft.undone": "{{n}} zurückgenommen",
   "planner.draft.undoSkipped": "Seither geändert, daher behalten: {{titles}}",
-  "planner.draft.undoFailed": "Rückgängig machen fehlgeschlagen – bitte erneut versuchen"
+  "planner.draft.undoFailed": "Rückgängig machen fehlgeschlagen – bitte erneut versuchen",
+  "planner.draft.edit": "Ändern",
+  "planner.draft.save": "Speichern",
+  "planner.draft.dueDate": "Fällig am",
+  "planner.draft.startTime": "Startzeit",
+  "planner.draft.duration": "Dauer (Min.)",
+  "planner.draft.editFailed": "Änderung nicht gespeichert – zurückgesetzt"
 }

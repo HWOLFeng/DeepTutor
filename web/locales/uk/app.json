@@ -6251,5 +6251,11 @@
   "planner.draft.undoConfirm": "Справді скасувати?",
   "planner.draft.undone": "Скасовано {{n}}",
   "planner.draft.undoSkipped": "Змінені після цього, тому залишені: {{titles}}",
-  "planner.draft.undoFailed": "Не вдалося скасувати — спробуйте ще раз"
+  "planner.draft.undoFailed": "Не вдалося скасувати — спробуйте ще раз",
+  "planner.draft.edit": "Змінити",
+  "planner.draft.save": "Зберегти",
+  "planner.draft.dueDate": "Термін",
+  "planner.draft.startTime": "Час початку",
+  "planner.draft.duration": "Тривалість (хв)",
+  "planner.draft.editFailed": "Не вдалося зберегти зміну — відновлено"
 }

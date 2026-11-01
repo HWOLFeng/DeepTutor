@@ -6276,5 +6276,11 @@
   "planner.draft.undoConfirm": "Take it back?",
   "planner.draft.undone": "Took back {{n}}",
   "planner.draft.undoSkipped": "Edited since, so kept: {{titles}}",
-  "planner.draft.undoFailed": "Could not undo — try again"
+  "planner.draft.undoFailed": "Could not undo — try again",
+  "planner.draft.edit": "Edit",
+  "planner.draft.save": "Save",
+  "planner.draft.dueDate": "Due date",
+  "planner.draft.startTime": "Start time",
+  "planner.draft.duration": "Duration (min)",
+  "planner.draft.editFailed": "Could not save the change — reverted"
 }

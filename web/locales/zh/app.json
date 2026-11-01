@@ -6276,5 +6276,11 @@
   "planner.draft.undoConfirm": "确认撤销？",
   "planner.draft.undone": "已撤销 {{n}} 条",
   "planner.draft.undoSkipped": "这些已被你改过，故保留：{{titles}}",
-  "planner.draft.undoFailed": "撤回失败，请重试"
+  "planner.draft.undoFailed": "撤回失败，请重试",
+  "planner.draft.edit": "改",
+  "planner.draft.save": "保存",
+  "planner.draft.dueDate": "到期日",
+  "planner.draft.startTime": "开始时间",
+  "planner.draft.duration": "时长（分钟）",
+  "planner.draft.editFailed": "保存失败，已恢复原值"
 }

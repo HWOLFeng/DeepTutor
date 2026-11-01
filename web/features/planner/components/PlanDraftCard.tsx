@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Lock } from 'lucide-react'
 import {
   applyDraft,
+  patchItem,
   undoBatch,
   type ApplyOutcome,
   type Decision,
@@ -46,6 +47,10 @@ export default function PlanDraftCard({
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A local copy so an inline edit can land immediately and be rolled back if
+  // the server refuses it. The server's rows win whenever they arrive.
+  const [items, setItems] = useState<PlanItem[]>(draft.items)
+  const [editing, setEditing] = useState<string | null>(null)
   // The batch this card wrote. Seeded from the draft so a reload shows the same
   // state as the moment it was applied.
   const [written, setWritten] = useState<ApplyOutcome | null>(draft.apply_result ?? null)
@@ -55,10 +60,7 @@ export default function PlanDraftCard({
 
   const closed = draft.status !== 'drafting' && draft.status !== 'reviewing'
   const readOnly = closed || written !== null
-  const byId = useMemo(
-    () => new Map(draft.items.map(item => [item.item_id, item])),
-    [draft.items]
-  )
+  const byId = useMemo(() => new Map(items.map(item => [item.item_id, item])), [items])
 
   /** A block is selected only while the task it serves is selected. */
   function parentDismissed(item: PlanItem): boolean {
@@ -84,9 +86,9 @@ export default function PlanDraftCard({
     setDismissed(previous => ({ ...previous, [item.item_id]: !previous[item.item_id] }))
   }
 
-  const selectable = draft.items.filter(item => !item.locked && !readOnly)
-  const selected = draft.items.filter(isSelected)
-  const total = draft.items.length
+  const selectable = items.filter(item => !item.locked && !readOnly)
+  const selected = items.filter(isSelected)
+  const total = items.length
   const minutes = selected.reduce((sum, item) => sum + (item.duration_min ?? 0), 0)
   const hours = (minutes / 60).toFixed(1)
   const limit = draft.summary.weekly_limit_min
@@ -98,7 +100,7 @@ export default function PlanDraftCard({
     setError(null)
     try {
       const decisions: Record<string, Decision> = {}
-      for (const item of draft.items) {
+      for (const item of items) {
         decisions[item.item_id] = isSelected(item) ? 'accepted' : 'dismissed'
       }
       const outcome = await applyDraft(draft.id, decisions)
@@ -109,6 +111,33 @@ export default function PlanDraftCard({
       setError(failure instanceof Error ? failure.message : t('planner.draft.error'))
     } finally {
       setBusy(false)
+    }
+  }
+
+  function startEdit(item: PlanItem) {
+    if (readOnly || busy) return
+    setEditing(item.item_id)
+  }
+
+  /** Applies an edit immediately, then makes the server's copy the truth. */
+  async function saveEdit(item: PlanItem, changes: Record<string, unknown>) {
+    if (!Object.keys(changes).length) {
+      setEditing(null)
+      return
+    }
+    const previous = items
+    const optimistic = items.map(row =>
+      row.item_id === item.item_id ? { ...row, ...changes } : row
+    )
+    setItems(optimistic)
+    setEditing(null)
+    setError(null)
+    try {
+      const fresh = await patchItem(draft.id, item.item_id, changes)
+      setItems(fresh.items)
+    } catch (failure) {
+      setItems(previous)
+      setError(failure instanceof Error ? failure.message : t('planner.draft.editFailed'))
     }
   }
 
@@ -133,9 +162,9 @@ export default function PlanDraftCard({
   }
 
   const groups: Array<{ kind: ItemKind; label: string }> = [
-    { kind: 'task', label: t('planner.draft.group.tasks', { n: countOf(draft, 'task') }) },
-    { kind: 'block', label: t('planner.draft.group.blocks', { n: countOf(draft, 'block') }) },
-    { kind: 'review', label: t('planner.draft.group.reviews', { n: countOf(draft, 'review') }) },
+    { kind: 'task', label: t('planner.draft.group.tasks', { n: countOf(items, 'task') }) },
+    { kind: 'block', label: t('planner.draft.group.blocks', { n: countOf(items, 'block') }) },
+    { kind: 'review', label: t('planner.draft.group.reviews', { n: countOf(items, 'review') }) },
   ]
 
   return (
@@ -157,11 +186,11 @@ export default function PlanDraftCard({
       </header>
 
       {groups.map(group =>
-        countOf(draft, group.kind) === 0 ? null : (
+        countOf(items, group.kind) === 0 ? null : (
           <div key={group.kind} className="planner-draft__group">
             <h4>{group.label}</h4>
             <ul>
-              {draft.items
+              {items
                 .filter(item => item.kind === group.kind)
                 .map(item => (
                   <li key={item.item_id} className="planner-draft__row">
@@ -176,8 +205,19 @@ export default function PlanDraftCard({
                       <span className="planner-draft__title">{item.title}</span>
                     </label>
                     <span className="planner-draft__meta">
-                      {when(item)}
-                      {item.duration_min ? ` · ${item.duration_min}min` : ''}
+                      {editing === item.item_id ? (
+                        <EditFields
+                          item={item}
+                          disabled={busy}
+                          onCancel={() => setEditing(null)}
+                          onSave={changes => void saveEdit(item, changes)}
+                        />
+                      ) : (
+                        <>
+                          {when(item)}
+                          {item.duration_min ? ` · ${item.duration_min}min` : ''}
+                        </>
+                      )}
                       {item.locked ? (
                         <span className="planner-draft__lock" title={t('planner.draft.locked')}>
                           <Lock size={12} aria-hidden />
@@ -188,6 +228,17 @@ export default function PlanDraftCard({
                       ) : null}
                       {item.conflict === 'overlap' ? (
                         <em className="planner-draft__flag">{t('planner.draft.overlap')}</em>
+                      ) : null}
+                      {!readOnly && editing !== item.item_id ? (
+                        <button
+                          type="button"
+                          className="planner-draft__edit"
+                          onClick={() => startEdit(item)}
+                          disabled={busy}
+                          aria-label={`${t('planner.draft.edit')}: ${item.title}`}
+                        >
+                          {t('planner.draft.edit')}
+                        </button>
                       ) : null}
                     </span>
                   </li>
@@ -280,7 +331,7 @@ export default function PlanDraftCard({
               type="button"
               className="planner-draft__confirm"
               onClick={() => void confirm()}
-              disabled={busy || selected.length === 0}
+              disabled={busy || selected.length === 0 || editing !== null}
               title={selected.length === 0 ? t('planner.draft.atLeastOne') : undefined}
             >
               {t('planner.draft.confirm', { n: selected.length })}
@@ -297,8 +348,91 @@ export default function PlanDraftCard({
   )
 }
 
-function countOf(draft: PlanDraft, kind: ItemKind): number {
-  return draft.items.filter(item => item.kind === kind).length
+/** Keeps the server's own offset, so an edited time is not shifted by the client. */
+function withWallClock(startAt: string, clock: string): string {
+  const [hour, minute] = clock.split(':').map(Number)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const datePart = startAt.slice(0, 10)
+  const offset = startAt.slice(10).replace(/^T\d{2}:\d{2}(:\d{2}(\.\d+)?)?/, '')
+  return `${datePart}T${pad(hour)}:${pad(minute)}:00${offset}`
+}
+
+function EditFields({
+  item,
+  disabled,
+  onSave,
+  onCancel,
+}: {
+  item: PlanItem
+  disabled: boolean
+  onSave: (changes: Record<string, unknown>) => void
+  onCancel: () => void
+}) {
+  const { t } = useTranslation()
+  const [date, setDate] = useState(item.due_date ?? '')
+  const [clock, setClock] = useState(item.start_at ? item.start_at.slice(11, 16) : '08:00')
+  const [minutes, setMinutes] = useState(String(item.duration_min ?? 45))
+
+  const save = () => {
+    if (item.kind === 'block') {
+      const duration = Number(minutes)
+      const changes: Record<string, unknown> = {}
+      if (Number.isFinite(duration) && duration > 0 && duration !== item.duration_min) {
+        changes.duration_min = duration
+      }
+      if (item.start_at && withWallClock(item.start_at, clock) !== item.start_at) {
+        changes.start_at = withWallClock(item.start_at, clock)
+      }
+      onSave(changes)
+      return
+    }
+    const changes: Record<string, unknown> = {}
+    if (date && date !== item.due_date) changes.due_date = date
+    onSave(changes)
+  }
+
+  return (
+    <span className="planner-draft__editor">
+      {item.kind === 'block' ? (
+        <>
+          <input
+            type="time"
+            value={clock}
+            onChange={event => setClock(event.target.value)}
+            disabled={disabled}
+            aria-label={t('planner.draft.startTime')}
+          />
+          <input
+            type="number"
+            min={1}
+            max={600}
+            value={minutes}
+            onChange={event => setMinutes(event.target.value)}
+            disabled={disabled}
+            aria-label={t('planner.draft.duration')}
+          />
+        </>
+      ) : (
+        <input
+          type="date"
+          value={date}
+          onChange={event => setDate(event.target.value)}
+          disabled={disabled}
+          aria-label={t('planner.draft.dueDate')}
+        />
+      )}
+      <button type="button" onClick={save} disabled={disabled}>
+        {t('planner.draft.save')}
+      </button>
+      <button type="button" onClick={onCancel} disabled={disabled}>
+        {t('planner.draft.cancel')}
+      </button>
+    </span>
+  )
+}
+
+function countOf(items: PlanItem[], kind: ItemKind): number {
+  return items.filter(item => item.kind === kind).length
 }
 
 function when(item: PlanItem): string {
