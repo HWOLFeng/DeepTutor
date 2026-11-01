@@ -78,3 +78,36 @@ cd /root/DeepTutor
 - 产出物：客户端 1 处 + 执行侧 1 处 + planner 两个小函数 + 测试
 - 证据：pytest 输出；前端部分若未执行须写明
 - 通过后：状态改 `☑ 已验收` + commit sha，然后提交
+
+## 后续修正（2026-11-01，真实使用中暴露，`d6278c16`）
+
+**这个功能上线后是坏的：每一条消息都发不出去。**
+
+客户端按要求给每个请求加上 `config.timezone`，而服务端每种能力的 config 校验都是
+`extra="forbid"`（`EmptyConfig`、`DeepQuestionRequestConfig`、`VisualizeRequestConfig`、
+`DeepResearchRequestConfig`、`MathAnimatorRequestConfig`、`AudioOverviewRequestConfig`）。
+于是 `start_turn` 在准备阶段抛：
+
+```
+Invalid chat config: timezone: Extra inputs are not permitted
+```
+
+前端把 `start_turn_rejected` 渲染成**固定一句**「无法连接到服务器，请检查网络后重试」
+（`web/features/chat/components/ChatWorkspace.tsx`），所以用户看到的是网络问题，实际是校验拒绝。
+服务端那条 `except` 分支当时也不打日志——两边都看不见原因。
+
+**为什么验收没抓到**：`tests/agents/test_planner_turn_timezone.py` 是打桩 `load_planner_context`、
+直接传 `config` 字典进执行侧，**从未经过 `validate_capability_config`** 这道真正的入口；而前端那一半
+（本文件第 74 行）当时没有 Node，连 `typecheck` 都没跑。两条证据加起来，恰好绕开了唯一会失败的环节。
+
+**修法**：新增 `ReaderTimeZone` 基类（`deeptutor/runtime/capability_catalog.py`）声明
+`timezone: str | None`，所有能力 config 继承它；`tests/runtime/test_reader_timezone_configs.py`
+**遍历能力目录**断言「每个能力的 config 都认得 timezone」——它当场找出两个没人记得的
+（audio overview、research），这正是不写死模型名的价值。
+
+`timezone` 保持 Optional 且为空时不落盘，请求快照不会多出 `timezone: ""`。
+
+**仍未解决**：被拒绝的那条消息会卡在「未发送」。它的 submission 预留已经写进库，
+而重试时客户端已经知道 session id，payload 与首次不同 → 摘要不同 → 重试被
+`This submission ID belongs to a different request or workspace.` 挡住。目前只能「丢弃未发送的草稿」
+再重发。要真正让「重试」可用，得让客户端按首次的 request snapshot 原样重放，这是独立的一件事。
