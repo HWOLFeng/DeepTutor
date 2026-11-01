@@ -146,20 +146,33 @@ class TurnApplicationService:
                     raise RuntimeError("Conversation not found in this workspace.")
                 return session, prior
         try:
-            session, turn = await runtime.start_turn(payload)
-        except ActiveTurnConflict:
-            if request.client_submission_id and callable(reserve) and callable(submission_turn):
-                prior = await submission_turn(request.client_submission_id)
-                if prior is not None:
-                    session = await store.get_session(prior["session_id"])
-                    if session is not None:
-                        return session, prior
-            # Retry once, and only after something was actually reclaimed, so a
-            # session busy with a live turn still gets its conflict.
-            session_id = str(payload.get("session_id") or "")
-            if not session_id or not await self._reclaim_unowned_active_turn(session_id):
-                raise
-            session, turn = await runtime.start_turn(payload)
+            try:
+                session, turn = await runtime.start_turn(payload)
+            except ActiveTurnConflict:
+                if request.client_submission_id and callable(reserve) and callable(submission_turn):
+                    prior = await submission_turn(request.client_submission_id)
+                    if prior is not None:
+                        session = await store.get_session(prior["session_id"])
+                        if session is not None:
+                            return session, prior
+                # Retry once, and only after something was actually reclaimed, so a
+                # session busy with a live turn still gets its conflict.
+                session_id = str(payload.get("session_id") or "")
+                if not session_id or not await self._reclaim_unowned_active_turn(session_id):
+                    raise
+                session, turn = await runtime.start_turn(payload)
+        except BaseException:
+            # A rejected admission must leave no trace. Reserving a first
+            # submission also creates its conversation (#1793), so a rejection
+            # between the two would otherwise leave an empty "New conversation"
+            # that the sidebar lists at the top with nothing in it and no way to
+            # advance it — it can only be deleted by hand.
+            if request.client_submission_id:
+                rollback = getattr(store, "rollback_rejected_admission", None)
+                if callable(rollback):
+                    with contextlib.suppress(Exception):
+                        await rollback(request.client_submission_id)
+            raise
         await store.update_session_preferences(
             session["id"],
             {

@@ -594,3 +594,63 @@ async def test_interrupted_worker_loss_recovery_replays_failure(
     assert events[-1]["seq"] == events[-2]["seq"] + 1
     if after_seq == 0:
         assert events[0]["content"] == "Partial answer"
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_admission_leaves_no_empty_conversation(
+    submission_service, monkeypatch
+):
+    """A refused first send must not leave a conversation on the home page.
+
+    Reserving a first submission creates its conversation (#1793). If the turn is
+    then rejected — a config the capability refuses, a workspace that moved — the
+    empty conversation stayed listed at the top of the sidebar with nothing in it,
+    and the same submission id could never be admitted again, so it could only be
+    deleted by hand.
+    """
+    service, store, _, _, _ = submission_service
+
+    async def reject(self, payload):
+        raise RuntimeError("Invalid chat config: timezone: Extra inputs are not permitted")
+
+    monkeypatch.setattr(
+        "deeptutor.services.session.turn_runtime.TurnRuntimeManager.start_turn", reject
+    )
+
+    with pytest.raises(RuntimeError, match="Invalid chat config"):
+        await service.start_turn(
+            {
+                "content": "小学开学，制定一周学习计划。",
+                "capability": "chat",
+                "client_submission_id": "rejected-send",
+                "config": {"timezone": "Asia/Shanghai"},
+                "attachments": [],
+            }
+        )
+
+    assert await store.list_sessions() == []
+    # The submission id is free again: the same message can be sent from scratch.
+    assert await store.submission_turn("rejected-send") is None
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_admission_keeps_a_conversation_that_has_content(
+    submission_service, monkeypatch
+):
+    """Only the empty shell is deleted; a conversation someone used stays."""
+    service, store, _, _, calls = submission_service
+    payload = {"content": "Original", "client_submission_id": "kept-send"}
+    await service.start_turn(payload)
+    sessions = await store.list_sessions()
+    assert len(sessions) == 1
+
+    async def reject(self, payload):
+        raise RuntimeError("Invalid chat config: timezone: Extra inputs are not permitted")
+
+    monkeypatch.setattr(
+        "deeptutor.services.session.turn_runtime.TurnRuntimeManager.start_turn", reject
+    )
+    with pytest.raises(RuntimeError):
+        await service.start_turn({**payload, "content": "Changed input"})
+
+    assert len(await store.list_sessions()) == 1

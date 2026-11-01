@@ -1270,6 +1270,46 @@ class SQLiteSessionStore:
     ) -> str:
         return await self._run(self._reserve_submission_sync, submission_id, digest, session_id)
 
+    def _rollback_rejected_admission_sync(self, submission_id: str) -> bool:
+        """Undo the conversation a rejected admission created, when it is empty.
+
+        Reserving a first submission also creates its conversation, so that the
+        two cannot be separated by a lost acknowledgement (#1793). If the turn is
+        then refused — a config the capability does not accept, a workspace that
+        moved — the conversation survives with no messages and no turns, and the
+        sidebar lists it at the top of the home page, looking like a conversation
+        that failed when in fact nothing was ever said. Nothing can advance it:
+        the same submission id is now bound to a request that was already
+        rejected. Deleting both rows is the only way back to a clean state.
+
+        Guarded on emptiness: anything that arrived while the admission was in
+        flight (a message, a turn) means this is no longer an empty shell and
+        must be left alone.
+        """
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            prior = conn.execute(
+                "SELECT * FROM turn_submissions WHERE client_submission_id = ?", (submission_id,)
+            ).fetchone()
+            if prior is None or prior["turn_id"]:
+                return False
+            session_id = str(prior["session_id"])
+            counts = conn.execute(
+                "SELECT (SELECT COUNT(*) FROM messages WHERE session_id = ?) AS messages,"
+                " (SELECT COUNT(*) FROM turns WHERE session_id = ?) AS turns",
+                (session_id, session_id),
+            ).fetchone()
+            if counts["messages"] or counts["turns"]:
+                return False
+            conn.execute(
+                "DELETE FROM turn_submissions WHERE client_submission_id = ?", (submission_id,)
+            )
+            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            return True
+
+    async def rollback_rejected_admission(self, submission_id: str) -> bool:
+        return await self._run(self._rollback_rejected_admission_sync, submission_id)
+
     def _replace_submission_sync(
         self, original_id: str, replacement_id: str, digest: str, session_id: str | None
     ) -> dict[str, Any]:

@@ -68,3 +68,28 @@ async def test_replacement_cannot_cross_workspace_or_session(tmp_path, monkeypat
     scope["id"] = "two"
     with pytest.raises(RuntimeError):
         await store.replace_submission("old", "new", "new", sid)
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_admission_rolls_back_its_empty_conversation(tmp_path):
+    """Reserving a first submission creates a conversation; a refusal must undo it.
+
+    Otherwise the home page lists an empty conversation at the top forever, and
+    its submission id is burnt: the retry carries the same id with a request that
+    was already rejected.
+    """
+    store = SQLiteSessionStore(tmp_path / "rollback.db")
+    await store.reserve_submission("send-1", "digest")
+    assert len(await store.list_sessions()) == 1
+    assert await store.rollback_rejected_admission("send-1") is True
+    assert await store.list_sessions() == []
+    assert await store.submission_turn("send-1") is None
+
+
+@pytest.mark.asyncio
+async def test_a_rollback_never_removes_a_conversation_that_has_a_turn(tmp_path):
+    store = SQLiteSessionStore(tmp_path / "rollback.db")
+    sid = await store.reserve_submission("send-2", "digest")
+    await store.begin_turn(sid, submission_id="send-2")
+    assert await store.rollback_rejected_admission("send-2") is False
+    assert len(await store.list_sessions()) == 1
