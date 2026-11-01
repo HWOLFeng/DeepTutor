@@ -162,18 +162,22 @@ docker logs --tail 30 deeptutor
 
 ## 9. 服务器落地记录（2026-11-01）
 
-本轮已把服务器从「源码 + bind mount 热修」切换为「固定镜像 + 数据卷」：
+本轮已把服务器从「源码 + bind mount 热修」切换为「固定镜像 + 数据卷」。
 
-- 镜像：`ghcr.io/hwolfeng/deeptutor@sha256:0421e651edb6ed3721eafd23f17f1ecf18aa4f88ba3c645bd858a49b3ba67908`
+2026-11-01 13:05 更新到当前 latest：
+
+- 镜像：`ghcr.io/hwolfeng/deeptutor@sha256:8f5b59a238be938f272d4502e0e59448feb9f0e5094cc267c5b4466056059c40`
 - 镜像大小：2.14 GB；平台：`linux/amd64`
+- 前端 build id：`APFp4IP6tznjX5dZ3J2sA`
 - compose：固定 digest，不使用 `latest`
 - 挂载：`data`、团队 vault、`team-docs`、`deploy/prompts/zh`
 - 已移除：`deploy/web-app`、源码文件、`practice` 目录等所有热修挂载
 - 后端：`docker exec deeptutor curl -fsS http://127.0.0.1:8001/health/ready` 返回 `{"status":"ready"}`
 - 前端：宿主 `http://127.0.0.1:3782/` 返回 200
 - 容器：`Up (healthy)`；重启后数据仍在
+- 数据：升级前 `data.tar` 207 MB，SQLite `integrity_check=ok`
 - 服务器现状：只保留 `data/`、`deploy/`、LICENSE/NOTICE；不再保留源码、`node_modules`、`.next`、`.venv`
-- 清理后仅保留 1 个运行镜像，磁盘约 13 GB / 49 GB
+- 镜像：当前镜像 + 旧 `0421e651...` 镜像（本地 `<none>`，保留作回滚）
 
 注意：8001 没有映射到宿主机，检查后端要在容器内执行；公网入口走 nginx `8443`。
 
