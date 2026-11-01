@@ -227,6 +227,18 @@ async def unified_websocket(ws: WebSocket) -> None:
                         }
                     )
                 except (RuntimeError, WorkspaceError) as exc:
+                    # A rejected admission leaves no turn and no user row, and the
+                    # client renders one fixed "check your connection" banner for
+                    # every reason — so this warning is the only place the cause
+                    # survives. Without it a failed send is indistinguishable from
+                    # a dead socket.
+                    logger.warning(
+                        "start_turn rejected (%s): %s [session=%s workspace=%s]",
+                        type(exc).__name__,
+                        exc,
+                        msg.get("session_id") or "-",
+                        msg.get("workspace_id") or "-",
+                    )
                     await send_error(
                         str(exc),
                         error_code="start_turn_rejected",
