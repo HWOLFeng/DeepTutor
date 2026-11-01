@@ -13,6 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
+from deeptutor.runtime.capability_catalog import ReaderTimeZone
+
 ResearchMode = Literal["notes", "report", "comparison", "learning_path"]
 ResearchDepth = Literal["quick", "standard", "deep", "manual"]
 
@@ -22,7 +24,7 @@ class OutlineItem(BaseModel):
     overview: str = ""
 
 
-class DeepResearchRequestConfig(BaseModel):
+class DeepResearchRequestConfig(ReaderTimeZone):
     model_config = ConfigDict(extra="forbid")
 
     mode: ResearchMode

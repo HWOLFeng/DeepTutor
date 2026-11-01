@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from deeptutor.runtime.capability_catalog import ReaderTimeZone
 
-class AudioOverviewRequestConfig(BaseModel):
+
+class AudioOverviewRequestConfig(ReaderTimeZone):
     model_config = ConfigDict(extra="forbid")
 
     topic: str = Field(default="", max_length=500)

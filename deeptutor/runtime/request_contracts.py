@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from deeptutor.modules.catalog import contribution_enabled, manifests
-from deeptutor.runtime.capability_catalog import EmptyConfig
+from deeptutor.runtime.capability_catalog import EmptyConfig, ReaderTimeZone
 
 
 class ChatRequestConfig(EmptyConfig):
@@ -36,7 +36,7 @@ class VideoLessonRequestConfig(EmptyConfig):
     pass
 
 
-class DeepQuestionRequestConfig(BaseModel):
+class DeepQuestionRequestConfig(ReaderTimeZone):
     model_config = ConfigDict(extra="forbid")
 
     mode: Literal["custom", "mimic"] = "custom"
@@ -54,7 +54,7 @@ class DeepQuestionRequestConfig(BaseModel):
     max_questions: int = Field(default=10, ge=1, le=100)
 
 
-class VisualizeRequestConfig(BaseModel):
+class VisualizeRequestConfig(ReaderTimeZone):
     model_config = ConfigDict(extra="forbid")
 
     # Visualizer ids are discovered at runtime, so this contract deliberately

@@ -6,8 +6,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from deeptutor.runtime.capability_catalog import ReaderTimeZone
 
-class MathAnimatorRequestConfig(BaseModel):
+
+class MathAnimatorRequestConfig(ReaderTimeZone):
     model_config = ConfigDict(extra="forbid")
 
     output_mode: Literal["video", "image"] = "video"

@@ -6,16 +6,31 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 CapabilityKind = Literal["turn", "loop_extension"]
 CapabilityFactory = Callable[[], object]
 
 
-class EmptyConfig(BaseModel):
+class ReaderTimeZone(BaseModel):
+    """Who is reading, in the one form the runtime needs.
+
+    Every turn may carry the reader's IANA zone: server-side "today" has to be
+    *their* today. It is not a per-capability option, so it lives in one base
+    class instead of being repeated — and, just as importantly, it must never
+    be an unknown field, because the chat surface attaches it to every message
+    it sends. A capability config that forbids extras and does not inherit this
+    rejects every send with "Extra inputs are not permitted".
+    """
+
+    timezone: str | None = Field(default=None, max_length=64)
+
+
+class EmptyConfig(ReaderTimeZone):
     """Explicit no-options schema; unknown fields are rejected."""
 
     model_config = ConfigDict(extra="forbid")
+
 
 
 @dataclass(frozen=True, slots=True)
