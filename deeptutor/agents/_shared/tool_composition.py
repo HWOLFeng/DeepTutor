@@ -275,6 +275,7 @@ def compose_enabled_tools(
         "ask_user",
         "cron",
         "tasks",
+        "calendar",
     ):
         if _builtin_allowed(always_on):
             composed.append(always_on)
