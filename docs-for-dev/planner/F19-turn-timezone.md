@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`06e8c05b`）|
 | 里程碑 | M3（补漏） |
 | 依赖 | F03 |
 | 回滚 | `git revert <sha>`。回滚后「今天」退回宿主机时区（见 F03 的已知缺口） |
@@ -25,6 +25,8 @@ F03 把规划块接进了提示词，但**它不知道读者在哪个时区**：
 2. **执行侧**：`executor.py` 里构建规划块之前，从 `payload.get("config") or {}` 取 `timezone`，用
    `zoneinfo.ZoneInfo` 校验；非法值**忽略**（记一条 debug 日志），绝不因此让本轮失败。
 3. **传递**：把校验后的值作为 `tzid=` 传给 `load_planner_context(..., tzid=...)`（该参数 F02 已有）。
+   实现上这一层收在 `deeptutor/services/planner/context.py` 的 `build_turn_planner_context(config=..., workspace_id=..., session_id=...)`
+   里，executor 只留一次调用——否则要测「时区是否传对」就得搭起一整套 turn 运行环境。
 4. **优先级**：请求里的时区 > 宿主时区 > `UTC`。宿主兜底逻辑保持在 `context.local_zone_name()` 里不动。
 
 ## 必读
@@ -40,7 +42,8 @@ F03 把规划块接进了提示词，但**它不知道读者在哪个时区**：
 
 ## 硬性约束
 
-- 只写这 4 个文件：`web/features/chat/components/ChatWorkspace.tsx`、`deeptutor/services/session/turns/executor.py`、`tests/agents/test_planner_turn_timezone.py`、必要时 `deeptutor/services/planner/context.py`（只允许新增一个校验小函数）；
+- 只写这 4 个文件：`web/features/chat/components/ChatWorkspace.tsx`、`deeptutor/services/session/turns/executor.py`、`tests/agents/test_planner_turn_timezone.py`、`deeptutor/services/planner/context.py`；
+- 在 `context.py` 里**新增两个小函数**（`turn_zone` 校验 + `build_turn_planner_context` 组装）是本次的偏离：原计划只加一个校验函数，但那样 executor 里要写两行取值再转发，测试就得搭整个 turn 运行环境。以「可测」换「少一个函数」，判定为值得；
 - **不得改线协议**（`turn-protocol.json` / `openapi.json` / 生成物）；`config` 是自由字段，改协议是过度设计；
 - 非法时区必须无副作用地忽略：不得抛错、不得清空规划块；
 - 不得把时区写进会话偏好（它是每轮的属性，不是持久设置）；
@@ -54,6 +57,12 @@ cd /root/DeepTutor
 .venv/bin/python -m pytest tests/services/planner -q
 ```
 
+实测结果：`tests/agents/test_planner_turn_timezone.py` → `11 passed`；`tests/services/planner` + 两个 agents 规划用例
+合计 `39 passed`；`tests/agents` 全量 `511 passed, 13 skipped`。
+
+`tests/services/session` 有 8 个失败，**经 `git stash -u` 基线对比确认为改动前既有失败**
+（`WorkspaceError: The selected workspace folder does not exist.`，与本功能无关），不在本功能修复范围内。
+
 测试必须覆盖（用打桩的 `load_planner_context` 断言收到的 `tzid`）：
 
 1. `config={"timezone": "America/New_York"}` → 收到 `tzid="America/New_York"`；
@@ -66,6 +75,6 @@ cd /root/DeepTutor
 
 ## 交付
 
-- 产出物：客户端 1 处 + 执行侧 1 处 + 测试
+- 产出物：客户端 1 处 + 执行侧 1 处 + planner 两个小函数 + 测试
 - 证据：pytest 输出；前端部分若未执行须写明
 - 通过后：状态改 `☑ 已验收` + commit sha，然后提交

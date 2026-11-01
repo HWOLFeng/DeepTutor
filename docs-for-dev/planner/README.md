@@ -54,7 +54,7 @@
 | [F16](F16-skill.md) | learning-plan skill | M3 | F08,F11 | ☐ |
 | [F17](F17-entry-chips.md) | 首页入口 | M3 | F11 | ☐ |
 | [F18](F18-daily-cron.md) | 每日计划自动化 | M3 | F13,F16 | ☐ |
-| [F19](F19-turn-timezone.md) | 规划上下文的读者时区 | M3 | F03 | ☐ |
+| [F19](F19-turn-timezone.md) | 规划上下文的读者时区 | M3 | F03 | ☑ |
 
 **关键路径**：F00 → F01 → F08 → F09 → F11 → F13 → F14。
 
@@ -98,3 +98,4 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F01 草稿存储 | `f3140a7b` | `pytest tests/services/planner -q` → `11 passed`；`compileall` 无输出 |
 | 2026-11-01 | F02 规划上下文聚合 | `049f638c` + `0de840cf` | `pytest tests/services/planner -q` → `24 passed`；典型日渲染 188 字符（上限 1200）|
 | 2026-11-01 | F03 上下文注入 | `4f66ebc8` | 新增 `4 passed`；`pytest tests/agents` → `500 passed, 13 skipped` |
+| 2026-11-01 | F19 读者时区 | `06e8c05b` | 新增 `11 passed`；`pytest tests/agents` → `511 passed, 13 skipped`；前端改动未验证（无 Node）|
