@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`572d76c3`）|
 | 里程碑 | M1 |
 | 依赖 | F01、F05、F07 |
 | 回滚 | `git revert <sha>`。回滚后模型不再能产出草稿；已写入的草稿行成为孤儿，不影响看板与日历 |
@@ -24,8 +24,25 @@ def build_plan(
     *, goal: str, week_start: date, workspace_id: str, tzid: str,
     candidates: list[PlanItemInput], existing_tasks: list[TaskCard],
     busy: list[Interval], policy: SlotPolicy,
-) -> list[PlanItem]
+) -> PlanProposal  # items: list[PlanItemInput]
 ```
+
+**与原计划的偏离（实现时判定，均已写进代码注释）**
+
+1. **返回 `PlanItemInput` 而不是 `PlanItem`**：生成器手里还没有 draf id，条目 id 由 store 按 payload
+   顺序分配（`i1`…`iN`）。所以**先任务后时间块**、`depends_on` 直接写「store 将会分配的 id」，
+   这是唯一能让依赖边对上号的顺序。
+2. **工具多一个 `items` 参数**：没有候选就无从规划。模型只提议标题/日期/类型，估时、落位、
+   去重、冲突、上限全部在代码里。
+3. **估时按条目类型**（`task` 45 分钟、`review` 20 分钟），不是原稿里的 practice/reading 表——
+   那需要模型上加一个 `type` 字段，属于后续细化，不在这里假装已经有了。
+4. **每日上限约束的是「排进日历的时间块」**，不是任务卡数量：一天可以有 5 张卡，但只有 3 小时被排进日历。
+   `locked` 的复习行永不因上限被丢弃。
+5. **时间块落在到期日优先、否则最近的更早日期，绝不晚于到期日**——到期之后才排时间比不排更糟。
+6. **会话 id 与语言由服务端注入**（`deeptutor/agents/loop/pipeline.py` 的 `plan_week` 分支），
+   与 `cron` 同一条规矩：模型永远不指定草稿归属于哪个会话。为此 `pipeline.py` 加入本功能文件清单。
+7. **草稿内同名同日条目直接丢弃**（没有可合并的对象），**看板已存在的同名同日条目保留并标
+   `conflict="duplicate"`**（apply 时合并）。
 
 职责与规则：
 
@@ -85,8 +102,14 @@ cd /root/DeepTutor
 6. 复习到期 N 个 → 产出且仅产出一条 `source="srs"`、`locked=True` 的条目；
 7. 输出顺序与 `position` 稳定（同输入两次调用，条目顺序一致）。
 
+实测结果：`tests/services/planner/test_build_plan.py` → `21 passed`；`tests/tools/test_planner_tools_plan_week.py`
+→ `15 passed`；规划相关四个文件合计 `117 passed`；`tests/agents` → `511 passed, 13 skipped`（pipeline 改动未回归）；
+`tests/modules` + 打包元数据 → `86 passed`；`tests/tools` 全量 `342 passed`（4 个既有失败与基线一致）。
+
+**零写入不变量**：工具用例直接比对调用前后 `cards` 行数与 `events` occurrence 数，二者必须相等。
+
 ## 交付
 
-- 产出物：生成器 + 工具 + 注册 + 两个测试文件
+- 产出物：`deeptutor/services/planner/planner.py`（`build_plan` / `PlanProposal` / `busy_from_occurrences`）+ `PlanWeekTool` + 三处注册 + pipeline 注入 + 两个测试文件
 - 证据：pytest 全绿输出 + 「零写入」用例的断言说明
 - 通过后：本文件状态改 `☑ 已验收` + commit sha，然后提交

@@ -43,7 +43,7 @@
 | [F05](F05-tasks-tool.md) | tasks 工具 | M1 | F01 | ☑ |
 | [F06](F06-free-slots.md) | 空闲时段算法 | M1 | F00 | ☑ |
 | [F07](F07-calendar-tool.md) | calendar 工具 | M1 | F06 | ☑ |
-| [F08](F08-plan-week.md) | plan_week 草稿生成 | M1 | F01,F05,F07 | ☐ |
+| [F08](F08-plan-week.md) | plan_week 草稿生成 | M1 | F01,F05,F07 | ☑ |
 | [F09](F09-apply.md) | 采纳 API 与落库 | M1 | F08 | ☐ |
 | [F10](F10-undo.md) | 整批撤回 | M1 | F09 | ☐ |
 | [F11](F11-draft-card.md) | 采纳卡片 | M2 | F04,F09 | ☐ |
@@ -102,3 +102,4 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F05 tasks 工具 | `ef3eaa86` | 新增 `19 passed`；`tests/tools` → `311 passed`（4 个既有失败已验证）；`tests/modules` → `43 passed` |
 | 2026-11-01 | F06 空闲时段算法 | `19bfde07` | 新增 `17 passed`；`tests/services/planner` → `41 passed` |
 | 2026-11-01 | F07 calendar 工具 | `0f9d4985` | 新增 `21 passed`（含 links）；`tests/agents` → `511 passed`；`tests/modules` → `86 passed` |
+| 2026-11-01 | F08 plan_week | `572d76c3` | 新增 `36 passed`；零写入不变量已验证；`tests/agents` → `511 passed` |
