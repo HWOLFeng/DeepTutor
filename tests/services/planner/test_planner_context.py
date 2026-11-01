@@ -48,7 +48,8 @@ def test_renders_all_five_facts():
     assert "2026-11-01" in text
     assert "Asia/Shanghai" in text
     assert "已排事件 2 个" in text and "组会" in text
-    assert "未完成任务 2 个" in text and "（11/04 到期）" in text and "（无日期）" in text
+    assert "未来 7 天到期任务 2 个" in text
+    assert "（11/04 到期）" in text and "（无日期）" in text
     assert "本会话关联任务：错题重做" in text
     assert "间隔重复到期 12 个" in text
     assert "读取失败" not in text
@@ -76,7 +77,7 @@ def test_one_broken_source_degrades_alone():
 
     assert "（部分数据读取失败：events）" in text
     assert "已排事件：暂无" in text
-    assert "未完成任务 2 个" in text  # the other reads still ran
+    assert "未来 7 天到期任务 2 个" in text  # the other reads still ran
 
 
 def test_every_broken_source_is_named():
@@ -148,7 +149,7 @@ def test_render_is_pure_on_a_hand_built_snapshot():
             "## 规划上下文",
             "今天是 2026-11-01 Sat（UTC）。",
             "- 未来 7 天已排事件：暂无",
-            "- 未完成任务：暂无",
+            "- 未来 7 天到期任务：暂无",
             "- 本会话关联任务：暂无",
             "- 间隔重复到期 3 个",
         ]
@@ -195,3 +196,36 @@ def test_default_event_source_formats_local_times_and_all_day(monkeypatch):
     assert rows[0]["task_id"] is None
     assert rows[1]["at"] == "11/04 全天"
     assert rows[1]["task_id"] == "t1"
+
+
+def test_default_task_source_keeps_only_the_window_slice(monkeypatch):
+    """The full board is already in the prompt; this source contributes only
+    the cards due inside the window being planned."""
+    from types import SimpleNamespace
+
+    from deeptutor.services import task_board as task_board_module
+    from deeptutor.services.planner import context as context_module
+
+    cards = [
+        SimpleNamespace(id="a", title="窗口内", due_date="2026-11-04", status="todo", archived=False),
+        SimpleNamespace(id="b", title="窗口外", due_date="2026-12-30", status="todo", archived=False),
+        SimpleNamespace(id="c", title="无日期", due_date=None, status="todo", archived=False),
+        SimpleNamespace(id="d", title="已完成", due_date="2026-11-03", status="done", archived=False),
+        SimpleNamespace(id="e", title="已归档", due_date="2026-11-02", status="todo", archived=True),
+        SimpleNamespace(id="f", title="今天到期", due_date="2026-11-01", status="doing", archived=False),
+    ]
+    monkeypatch.setattr(
+        task_board_module, "get_task_board_store", lambda **kw: SimpleNamespace(read=lambda: None)
+    )
+    monkeypatch.setattr(
+        task_board_module,
+        "workspace_board",
+        lambda board, workspace: SimpleNamespace(cards=cards, session_links=[]),
+    )
+
+    sources = context_module._default_sources(
+        workspace_id="w", session_id=None, tzid="Asia/Shanghai", moment=NOW, days=7
+    )
+    rows = sources.tasks("w")
+
+    assert [row["title"] for row in rows] == ["今天到期", "窗口内"]

@@ -23,7 +23,7 @@ class PlannerSnapshot:
     today: str                 # "2026-11-01 Sun"
     tzid: str                  # "Asia/Shanghai"
     events: list[dict]         # {"at": "11/02 19:00", "title": "...", "task_id": str|None}
-    tasks: list[dict]          # {"title": "...", "due": "11/04"|None, "id": "..."}
+    tasks: list[dict]          # 窗口内到期任务 {"title": "...", "due": "11/04", "id": "..."}
     linked_tasks: list[dict]   # 本会话已关联的任务，结构同上
     review_due: int            # 来自间隔重复引擎的到期数量
     degraded: list[str]        # 读取失败的数据源名
@@ -42,7 +42,7 @@ def render_planner_context(snapshot: PlannerSnapshot) -> str
 ## 规划上下文
 今天是 2026-11-01（Asia/Shanghai）。
 - 未来 7 天已排事件 3 个：11/02 19:00 组会；11/04 20:00 线代复习
-- 未完成任务 5 个：错题重做（11/04 到期）、预习第 4 章（无日期）…
+- 未来 7 天到期任务 5 个：错题重做（11/04 到期）；预习第 4 章（11/06 到期）…
 - 本会话关联任务：错题重做
 - 间隔重复到期 12 个
 ```
@@ -55,9 +55,15 @@ def render_planner_context(snapshot: PlannerSnapshot) -> str
 - 空数据渲染成 `暂无`，不省略标题行；
 - 时间格式统一 `MM/DD HH:MM`，日期统一 `MM/DD`，全部通过 `recurrence.zone()` 换算，不手写时区逻辑。
 
+**与既有 `[Task context]` 的关系（实测确认，必须遵守）**：executor 已经通过
+`TaskBoardStore.context_text(workspace_id, session_id)` 把看板**全量**任务（最多 40 条，含 note / status /
+`linked_to_conversation`）拼进 `source_manifest_text`。所以本块**不得**再列一遍全量任务——它只补三件
+既有块说不了的事：**今天**、**日历**、**窗口内到期切片**与**复习到期量**。重复的任务列表既浪费预算，
+又可能让两处出现不一致的表述。
+
 数据来源（全部只读）：
 - `get_calendar_store().occurrences(now, now+days, tzid)`
-- `get_task_board_store().read()` → `workspace_board(board, workspace_id)` 过滤 `archived == False`
+- `get_task_board_store().read()` → `workspace_board(board, workspace_id)`，只保留 `archived == False`、`status != done`、**`due_date` 落在 `[今天, 今天+days]` 内**的卡（窗口切片，不是全量）
 - `session_tasks`（本会话关联任务）经 `workspace_board(...).session_links`
 - 复习到期：`deeptutor/learning/scheduler.py` 的 `SpacedRepetitionScheduler.build_review_queue`
 
@@ -90,17 +96,18 @@ cd /root/DeepTutor
 .venv/bin/python -m pytest tests/services/planner/test_planner_context.py -q
 ```
 
-实测结果：`11 passed`（连同 F01 的 11 个用例，`pytest tests/services/planner -q` 共 `23 passed`）。
+实测结果：`13 passed`（连同 F01 的 11 个用例，`pytest tests/services/planner -q` 共 `24 passed`）；典型日渲染 188 字符（上限 1200）。
 
 测试必须覆盖：
 
-1. 有数据：渲染结果包含今天日期、时区、事件条数、未完成任务数、到期复习数五类信息；
+1. 有数据：渲染结果包含今天日期、时区、事件条数、「未来 N 天到期任务」条数、到期复习数五类信息；
 2. 全空：渲染结果包含 `暂无`，且不抛异常；
 3. 某一路数据源抛异常（例如 events 抛 `OSError`）：其余信息仍渲染，`degraded` 含 `events`，文本末尾含「部分数据读取失败」；
 4. 超量截断：给 200 条事件，输出长度 `<= 1200` 且以 `（已截断）` 结尾；
 5. 隔离：`workspace_id="a"` 的聚合结果不含 `workspace_id="b"` 的任务（用假 sources 断言过滤条件被传递）；
 6. 真实数据源的事件映射：计时事件按用户时区换算、全天事件保持本地日历日（用打桩的 calendar store 断言 `11/02 19:00` 与 `11/04 全天`）；
-7. `session_id` 被原样传给关联任务读取函数（`None` 与具体 id 各测一次）。
+7. `session_id` 被原样传给关联任务读取函数（`None` 与具体 id 各测一次）；
+8. 默认任务源只留窗口切片：窗口外、无日期、已完成、已归档的卡都不出现（用打桩的 task board 断言）。
 
 ## 交付
 

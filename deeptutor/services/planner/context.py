@@ -109,9 +109,11 @@ def _render(
         lines.append(f"- 未来 {snapshot.days} 天已排事件：{_EMPTY}")
 
     if tasks:
-        lines.append(f"- 未完成任务 {len(tasks)} 个：{_join([_task_row(r) for r in tasks])}")
+        lines.append(
+            f"- 未来 {snapshot.days} 天到期任务 {len(tasks)} 个：{_join([_task_row(r) for r in tasks])}"
+        )
     else:
-        lines.append(f"- 未完成任务：{_EMPTY}")
+        lines.append(f"- 未来 {snapshot.days} 天到期任务：{_EMPTY}")
 
     if linked:
         lines.append(f"- 本会话关联任务：{_join([_shorten(r.get('title') or '') for r in linked])}")
@@ -195,12 +197,19 @@ def _default_sources(
         return workspace_board(get_task_board_store().read(), workspace_id)
 
     def _tasks(_workspace_id: str) -> list[dict[str, Any]]:
+        # The whole board is already in the prompt as ``[Task context]``; what
+        # it cannot say is which cards fall inside the window being planned.
+        # This is that slice — not a second copy of the board.
+        first = moment.date().isoformat()
+        last = (moment + timedelta(days=max(1, int(days)))).date().isoformat()
         rows = []
         for card in _board_scope().cards:
-            if card.archived or card.status == "done":
+            if card.archived or card.status == "done" or not card.due_date:
+                continue
+            if not first <= card.due_date <= last:
                 continue
             rows.append({"title": card.title, "due": card.due_date, "id": card.id})
-        rows.sort(key=lambda row: (row["due"] is None, row["due"] or "", row["title"]))
+        rows.sort(key=lambda row: (row["due"] or "", row["title"]))
         return rows
 
     def _linked(_workspace_id: str, wanted_session: str | None) -> list[dict[str, Any]]:
