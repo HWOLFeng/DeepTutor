@@ -177,7 +177,7 @@ docker logs --tail 30 deeptutor
 - 容器：`Up (healthy)`；重启后数据仍在
 - 数据：升级前 `data.tar` 207 MB，SQLite `integrity_check=ok`
 - 服务器现状：只保留 `data/`、`deploy/`、LICENSE/NOTICE；不再保留源码、`node_modules`、`.next`、`.venv`
-- 镜像：当前镜像 + 旧 `0421e651...` 镜像（本地 `<none>`，保留作回滚）
+- 镜像：当前镜像 + 旧 `0421e651...` 镜像（tag `deeptutor:rollback-20261101`，保留作回滚）
 
 注意：8001 没有映射到宿主机，检查后端要在容器内执行；公网入口走 nginx `8443`。
 
