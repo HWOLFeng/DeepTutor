@@ -40,7 +40,7 @@
 | [F02](F02-planner-context.md) | 规划上下文聚合 | M0 | F01 | ☑ |
 | [F03](F03-context-injection.md) | 上下文注入 | M0 | F02 | ☑ |
 | [F04](F04-contracts.md) | 契约与 plan_draft 事件 | M0 | F00 | ☐ |
-| [F05](F05-tasks-tool.md) | tasks 工具 | M1 | F01 | ☐ |
+| [F05](F05-tasks-tool.md) | tasks 工具 | M1 | F01 | ☑ |
 | [F06](F06-free-slots.md) | 空闲时段算法 | M1 | F00 | ☐ |
 | [F07](F07-calendar-tool.md) | calendar 工具 | M1 | F06 | ☐ |
 | [F08](F08-plan-week.md) | plan_week 草稿生成 | M1 | F01,F05,F07 | ☐ |
@@ -99,3 +99,4 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F02 规划上下文聚合 | `049f638c` + `0de840cf` | `pytest tests/services/planner -q` → `24 passed`；典型日渲染 188 字符（上限 1200）|
 | 2026-11-01 | F03 上下文注入 | `4f66ebc8` | 新增 `4 passed`；`pytest tests/agents` → `500 passed, 13 skipped` |
 | 2026-11-01 | F19 读者时区 | `06e8c05b` | 新增 `11 passed`；`pytest tests/agents` → `511 passed, 13 skipped`；前端改动未验证（无 Node）|
+| 2026-11-01 | F05 tasks 工具 | `ef3eaa86` | 新增 `19 passed`；`tests/tools` → `311 passed`（4 个既有失败已验证）；`tests/modules` → `43 passed` |

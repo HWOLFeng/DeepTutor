@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`ef3eaa86`）|
 | 里程碑 | M1 |
 | 依赖 | F01 |
 | 回滚 | `git revert <sha>`。回滚后模型失去读写任务能力，看板数据不受影响 |
@@ -31,7 +31,8 @@ actions:
 
 - **不接受 `workspace_id` 参数**：一律取 `current_workspace_id()`，跨 workspace 的任务视为不存在（返回「未找到」，不要泄露存在性）；
 - 日期只接受 `YYYY-MM-DD`，非法值直接报错，不要猜；
-- 所有 store 获取走模块级小函数（`_board_store()`），测试用 monkeypatch 替换，不依赖账户路径；
+- 所有 store 获取走模块级小函数（`_board_store()` / `_workspace()`），测试用 monkeypatch 替换，不依赖账户路径
+  ——实测下来这是本功能唯一能让 19 个用例都不碰账户目录的办法；
 - 每次执行返回 `ToolResult`：`content` 是人读摘要，`metadata` 带 `{"task_ids": [...]}`，便于后续功能/前端使用。
 
 注册三处（缺一处工具不会生效）：
@@ -74,10 +75,18 @@ cd /root/DeepTutor
 2. `create` 后能看到新卡，`due_date` 为空时不写脏值；
 3. `create` 传非法日期 → 报错且不落库；
 4. `update` / `complete` / `reschedule` 对**另一个 workspace 的 task_id** → 返回未找到，且数据库无变化；
-5. 非法 `action` → 明确报错，不静默成功。
+5. 非法 `action` → 明确报错，不静默成功；
+6. `update` 只改点名的字段（改期不动标题），`due_date=""` 能清空日期；
+7. 注册三处齐全：`BUILTIN_TOOL_SPEC_BY_NAME` / `CONFIGURABLE_BUILTIN_TOOL_NAMES` / always-on 挂载元组
+   （只注册两处时工具会静默不挂载，所以单独立一条用例）。
+
+实测结果：`tests/tools/test_planner_tools_tasks.py` → `19 passed`；`tests/tools` 其余用例
+`311 passed, 2 skipped`，其中 4 个失败（`knowledge_frontier` 缺 `arxiv`、`pptx_workspace_flow`）
+经 `git stash -u` 基线对比确认为改动前既有失败；`tests/modules` + `tests/test_packaging_metadata.py`
+→ `43 passed`（证明确实遵守了清单的路径归属与顺序规则）。
 
 ## 交付
 
-- 产出物：工具类 + 三处注册 + 测试
+- 产出物：`deeptutor/tools/planner_tools.py`（`TasksTool`）+ 三处注册 + 测试
 - 证据：pytest 全绿输出 + `registered` 输出
 - 通过后：本文件状态改 `☑ 已验收` + commit sha，然后提交
