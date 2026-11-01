@@ -1,5 +1,5 @@
 {
-  "fingerprint": "7d025e93dd1890eb85081c34987ecfb79c4c6b7798f0b702cda86e6cd6b05402",
+  "fingerprint": "c9d351b9203b03929e3612413a93bf05cc264bb212797aa660e536398ec2e29f",
   "routers": {
     "deeptutor.api.routers.auth:router": [
       {
@@ -2056,6 +2056,14 @@
       {
         "path": "/drafts/{draft_id}/apply",
         "name": "apply_draft",
+        "kind": "http",
+        "methods": [
+          "POST"
+        ]
+      },
+      {
+        "path": "/undo/{token}",
+        "name": "undo_batch",
         "kind": "http",
         "methods": [
           "POST"

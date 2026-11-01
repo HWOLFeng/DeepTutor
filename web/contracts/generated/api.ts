@@ -6275,6 +6275,31 @@ export interface paths {
     readonly patch: operations["patch_item_api_planner_drafts__draft_id__items__item_id__patch"];
     readonly trace?: never;
   };
+  readonly "/api/planner/undo/{token}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /**
+     * Undo Batch
+     * @description Takes back one applied batch, row by row.
+     *
+     *     A row the learner has since edited is left alone and reported by name: undo
+     *     restores what this batch wrote, it does not overrule later decisions. Rows
+     *     that were merged into an existing card are never touched — that card was
+     *     never this batch's to delete.
+     */
+    readonly post: operations["undo_batch_api_planner_undo__token__post"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/plugins/{plugin_id}/{plugin_path}": {
     readonly parameters: {
       readonly query?: never;
@@ -17823,6 +17848,22 @@ export interface components {
       /** Theme */
       readonly theme?: ("light" | "dark" | "glass" | "snow") | null;
     };
+    /** UndoOutcome */
+    readonly UndoOutcome: {
+      /**
+       * Already Undone
+       * @default false
+       */
+      readonly already_undone: boolean;
+      /** Removed */
+      readonly removed: number;
+      /** Revision */
+      readonly revision?: {
+        readonly [key: string]: number;
+      };
+      /** Skipped */
+      readonly skipped?: readonly string[];
+    };
     /** UnitText */
     readonly UnitText: {
       /** Locator */
@@ -19155,6 +19196,7 @@ export type SchemaTurnRequest = components["schemas"]["TurnRequest"];
 export type SchemaTurnStatus = components["schemas"]["TurnStatus"];
 export type SchemaTurnSummary = components["schemas"]["TurnSummary"];
 export type SchemaUiSettingsUpdate = components["schemas"]["UISettingsUpdate"];
+export type SchemaUndoOutcome = components["schemas"]["UndoOutcome"];
 export type SchemaUnitText = components["schemas"]["UnitText"];
 export type SchemaUpdateBlockRequest =
   components["schemas"]["UpdateBlockRequest"];
@@ -33061,6 +33103,41 @@ export interface operations {
         };
         content: {
           readonly "application/json": components["schemas"]["PlanDraft"];
+        };
+      };
+      /** @description Validation Error */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  readonly undo_batch_api_planner_undo__token__post: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: {
+        readonly Authorization?: string | null;
+      };
+      readonly path: {
+        readonly token: string;
+      };
+      readonly cookie?: {
+        readonly dt_token?: string | null;
+      };
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["UndoOutcome"];
         };
       };
       /** @description Validation Error */

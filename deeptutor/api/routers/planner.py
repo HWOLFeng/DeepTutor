@@ -56,6 +56,13 @@ class ApplyOutcome(BaseModel):
     revision: dict[str, int] = Field(default_factory=dict)
 
 
+class UndoOutcome(BaseModel):
+    removed: int
+    skipped: list[str] = Field(default_factory=list)
+    already_undone: bool = False
+    revision: dict[str, int] = Field(default_factory=dict)
+
+
 class ItemPatchRequest(BaseModel):
     """Inline edits made before accepting; absent fields are left alone."""
 
@@ -163,6 +170,7 @@ def apply_draft(draft_id: str, payload: ApplyRequest, request: Request) -> Apply
         if not card.archived and card.due_date
     }
     created_cards: dict[str, str] = {}  # draft item_id -> card id
+    applied_rows: list[dict[str, Any]] = []
     task_ids: list[str] = []
     merged = 0
     for item in draft.items:
@@ -172,6 +180,8 @@ def apply_draft(draft_id: str, payload: ApplyRequest, request: Request) -> Apply
         # is work the learner should see on the board, not just in a draft.
         landed = existing.get((_norm(item.title), item.due_date))
         if landed is not None:
+            # Merged rows are the learner's own card: recorded, never deleted
+            # by an undo that only promised to take back what it created.
             created_cards[item.item_id] = landed.id
             merged += 1
             continue
@@ -184,6 +194,14 @@ def apply_draft(draft_id: str, payload: ApplyRequest, request: Request) -> Apply
         )
         created_cards[item.item_id] = card.id
         task_ids.append(card.id)
+        applied_rows.append(
+            {
+                "kind": item.kind,
+                "title": card.title,
+                "due_date": card.due_date,
+                "card_id": card.id,
+            }
+        )
 
     event_ids: list[str] = []
     for item in draft.items:
@@ -204,6 +222,14 @@ def apply_draft(draft_id: str, payload: ApplyRequest, request: Request) -> Apply
             )
         )["event"]
         event_ids.append(event.id)
+        applied_rows.append(
+            {
+                "kind": "block",
+                "title": event.title,
+                "start_at": item.start_at,
+                "event_id": event.id,
+            }
+        )
 
     cards_after = len(workspace_board(board_store.read(), workspace_id).cards)
     events_after = len(
@@ -229,7 +255,13 @@ def apply_draft(draft_id: str, payload: ApplyRequest, request: Request) -> Apply
         undo_token,
         draft_id,
         before={"cards": cards_before, "events": events_before},
-        after={"cards": cards_after, "events": events_after},
+        after={
+            "cards": cards_after,
+            "events": events_after,
+            # What this batch wrote, row by row: undo compares against these
+            # expectations instead of guessing from timestamps.
+            "items": applied_rows,
+        },
         task_ids=task_ids,
         event_ids=event_ids,
     )
@@ -237,6 +269,82 @@ def apply_draft(draft_id: str, payload: ApplyRequest, request: Request) -> Apply
     if stored.apply_result and stored.apply_result != outcome.model_dump():
         return ApplyOutcome(**stored.apply_result)
     return outcome
+
+
+@router.post("/undo/{token}", response_model=UndoOutcome)
+def undo_batch(token: str, request: Request) -> UndoOutcome:
+    """Takes back one applied batch, row by row.
+
+    A row the learner has since edited is left alone and reported by name: undo
+    restores what this batch wrote, it does not overrule later decisions. Rows
+    that were merged into an existing card are never touched — that card was
+    never this batch's to delete.
+    """
+    workspace_id = board_workspace(request)
+    store = get_plan_draft_store()
+    with errors():
+        snapshot = store.read_undo(token)
+        draft = _draft_for(snapshot.draft_id, workspace_id)
+    if snapshot.undone:
+        return UndoOutcome(removed=0, already_undone=True)
+
+    board_store = get_task_board_store()
+    calendar_store = get_calendar_store()
+    removed = 0
+    skipped: list[str] = []
+    for entry in snapshot.after.get("items") or []:
+        if entry.get("card_id"):
+            card = next(
+                (
+                    row
+                    for row in workspace_board(board_store.read(), workspace_id).cards
+                    if row.id == entry["card_id"]
+                ),
+                None,
+            )
+            if card is None:
+                continue
+            if card.title != entry.get("title") or card.due_date != entry.get("due_date"):
+                skipped.append(card.title)
+                continue
+            try:
+                board_store.delete(card.id, workspace_id=workspace_id)
+            except KeyError:
+                continue
+            removed += 1
+            continue
+        event_id = entry.get("event_id")
+        if not event_id:
+            continue
+        occurrence = _occurrence(calendar_store, event_id, draft.tzid)
+        if occurrence is None:
+            continue
+        if _instant(occurrence.start) != _instant(str(entry.get("start_at"))):
+            skipped.append(occurrence.title)
+            continue
+        try:
+            calendar_store.delete(event_id)
+        except KeyError:
+            continue
+        removed += 1
+
+    store.mark_undone(token)
+    return UndoOutcome(
+        removed=removed,
+        skipped=skipped,
+        revision={
+            "calendar": calendar_store.revision(),
+            "board": board_store.revision(),
+        },
+    )
+
+
+def _occurrence(store, event_id: str, tzid: str):
+    payload = store.occurrences(_far_past(), _far_future(), tzid)
+    for row in payload.get("occurrences") or []:
+        if row.event_id == event_id:
+            return row
+    return None
 
 
 def _instant(value: str):

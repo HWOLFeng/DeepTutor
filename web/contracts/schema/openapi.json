@@ -13712,6 +13712,38 @@
         "title": "UISettingsUpdate",
         "type": "object"
       },
+      "UndoOutcome": {
+        "properties": {
+          "already_undone": {
+            "default": false,
+            "title": "Already Undone",
+            "type": "boolean"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "revision": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Revision",
+            "type": "object"
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "removed"
+        ],
+        "title": "UndoOutcome",
+        "type": "object"
+      },
       "UnitText": {
         "properties": {
           "locator": {
@@ -44539,6 +44571,81 @@
           }
         },
         "summary": "Patch Item",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/api/planner/undo/{token}": {
+      "post": {
+        "description": "Takes back one applied batch, row by row.\n\nA row the learner has since edited is left alone and reported by name: undo\nrestores what this batch wrote, it does not overrule later decisions. Rows\nthat were merged into an existing card are never touched — that card was\nnever this batch's to delete.",
+        "operationId": "undo_batch_api_planner_undo__token__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "dt_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dt Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndoOutcome"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Batch",
         "tags": [
           "planner"
         ]

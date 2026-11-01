@@ -276,6 +276,31 @@ class TaskBoardStore:
             self._changed(connection)
             return self._snapshot(connection)
 
+    def delete(self, card_id: str, *, workspace_id: str = "") -> TaskBoard:
+        """Removes a card and the links that named it.
+
+        Only an undo needs this: accepting a plan can be taken back, and a card
+        that was written by mistake should not linger as an archived row in
+        every future board export. Links die with it — ``session_tasks`` rows
+        naming a missing card would make the board inconsistent.
+        """
+        if not self.path.exists():
+            raise KeyError(card_id)
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT workspace_id FROM cards WHERE id=?", (card_id,)
+            ).fetchone()
+            if row is None or (row["workspace_id"] or "") != workspace_id:
+                raise KeyError(card_id)
+            connection.execute(
+                "DELETE FROM session_tasks WHERE task_id=?", (card_id,)
+            )
+            connection.execute("DELETE FROM legacy_imports WHERE task_id=?", (card_id,))
+            connection.execute("DELETE FROM cards WHERE id=?", (card_id,))
+            self._changed(connection)
+            return self._snapshot(connection)
+
     def set_colors(self, colors: StatusColors) -> TaskBoard:
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
