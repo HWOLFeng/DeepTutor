@@ -13,7 +13,8 @@
 4. 全绿 → 把该文档状态改为 `☑ 已验收` 并写上 commit sha → 提交（一个功能一个 commit）。
 5. 出问题 → `git revert <sha>`，状态改回 `☐`，在「变更记录」写一行原因。
 
-状态标记：`☐ 未开始` / `◐ 进行中` / `☑ 已验收` / `✗ 已回滚`
+状态标记：`☐ 未开始` / `◐ 进行中` / `☑ 已验收` / `✗ 已回滚` / `✗ 裁撤`（计划本身被判定为不必要或有害，
+文件保留判断理由，不进入实现）
 
 ---
 
@@ -39,7 +40,7 @@
 | [F01](F01-draft-store.md) | 草稿存储 | M0 | F00 | ☑ |
 | [F02](F02-planner-context.md) | 规划上下文聚合 | M0 | F01 | ☑ |
 | [F03](F03-context-injection.md) | 上下文注入 | M0 | F02 | ☑ |
-| [F04](F04-contracts.md) | 契约与 plan_draft 事件 | M0 | F00 | ☐ |
+| [F04](F04-contracts.md) | 契约与 plan_draft 事件 | M0 | F00 | ✗ 裁撤 |
 | [F05](F05-tasks-tool.md) | tasks 工具 | M1 | F01 | ☑ |
 | [F06](F06-free-slots.md) | 空闲时段算法 | M1 | F00 | ☑ |
 | [F07](F07-calendar-tool.md) | calendar 工具 | M1 | F06 | ☑ |
@@ -48,7 +49,7 @@
 | [F10](F10-undo.md) | 整批撤回 | M1 | F09 | ☑ |
 | [F11](F11-draft-card.md) | 采纳卡片 | M2 | F04,F09 | ☐ |
 | [F12](F12-inline-edit.md) | 卡内改期 | M2 | F11 | ☐ |
-| [F13](F13-chat-render.md) | 聊天渲染接入 | M2 | F04,F11 | ☐ |
+| [F13](F13-chat-render.md) | 聊天渲染接入 | M2 | F11 | ☐ |
 | [F14](F14-undo-ui.md) | 撤回入口 | M2 | F10,F13 | ☐ |
 | [F15](F15-reject-reasons.md) | 拒绝原因与会话去重 | M2 | F02,F13 | ☐ |
 | [F16](F16-skill.md) | learning-plan skill | M3 | F08,F11 | ☐ |
@@ -105,3 +106,5 @@ F19 是 F03 交付时暴露的补漏项（「今天」的时区还取自宿主�
 | 2026-11-01 | F08 plan_week | `572d76c3` | 新增 `36 passed`；零写入不变量已验证；`tests/agents` → `511 passed` |
 | 2026-11-01 | F09 采纳 API | `ce1a9139` | 新增 `15 passed`；契约双端 `--check` 通过；`tests/api` 失败数未增加（62 vs 基线 63）|
 | 2026-11-01 | F10 整批撤回 | `e77f73f8` | 新增 `10 passed`；`tests/multi_user` 任务板/日历 `37 passed`；契约 `check` 通过 |
+| 2026-11-01 | F04 裁撤 | — | 草稿 id 已随 `tool_result.metadata` 到达前端，新增事件类型会造成两个真相来源；F13 改为读 metadata |
+| 2026-11-01 | 契约工具链打通 | `ce1a9139` | 用 `/tmp` 的临时 Node 22.11 完成 `openapi.json` + `generated/api.ts` 重生成，两端 `--check` 通过 |

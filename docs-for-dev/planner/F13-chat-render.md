@@ -4,7 +4,7 @@
 | --- | --- |
 | 状态 | ☐ 未开始 |
 | 里程碑 | M2 |
-| 依赖 | F04、F11 |
+| 依赖 | F11（F04 已裁撤：草稿 id 走 `tool_result.metadata`）|
 | 回滚 | `git revert <sha>`。回滚后卡片不再出现（草稿仍在库中，可由 API 找回） |
 
 **环境前置**：Node 22 + `npm ci`，否则只能静态检查。
@@ -20,6 +20,8 @@
 规则：
 
 1. `tool_result` 事件的 `metadata.plan_draft_id` 存在 → 视为一次草稿产出，取 `GET /api/planner/drafts/{id}` 后渲染 `<PlanDraftCard>`；
+   **不需要新的流事件类型**（见 [F04 的裁撤理由](F04-contracts.md)）：`tool_result` 是既有事件，metadata 原样到前端；
+   读取方式照 `web/lib/tool-event.ts` 的 `toolResultPayload()`，与 `mastery_handoff` 卡同一套做法；
 2. 卡片挂在**产生它的那条助手消息**下面，位置固定在消息正文之后、工具轨迹之前；
 3. **同一会话只激活最新一个未 applied/undone 的草稿**；更早的草稿折叠成一行「已过期的草稿 · 查看」；
 4. 重放：消息从历史加载时，事件里已有 `plan_draft_id` → 自动拉取草稿，状态与 when live 一致（已 applied 的显示结果，不显示勾选框）；
@@ -33,7 +35,7 @@
 
 | 文件 | 为什么 |
 | --- | --- |
-| [F04-contracts.md](F04-contracts.md) | 事件类型与 `metadata` 约定 |
+| [F04-contracts.md](F04-contracts.md) | 已裁撤；读它的「裁撤理由」理解为什么改用 metadata |
 | [F11-draft-card.md](F11-draft-card.md) | 卡片 props |
 | [F08-plan-week.md](F08-plan-week.md) | 工具产出 `metadata.plan_draft_id` 的位置 |
 | `web/features/chat/messages/ChatMessageList.tsx` | 消息与事件的渲染入口（`wait_for_input` 卡片在那里处理，照它的位置感） |
