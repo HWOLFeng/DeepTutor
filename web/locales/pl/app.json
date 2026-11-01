@@ -6257,5 +6257,8 @@
   "planner.draft.dueDate": "Termin",
   "planner.draft.startTime": "Godzina rozpoczęcia",
   "planner.draft.duration": "Czas trwania (min)",
-  "planner.draft.editFailed": "Nie udało się zapisać zmiany — przywrócono"
+  "planner.draft.editFailed": "Nie udało się zapisać zmiany — przywrócono",
+  "planner.draft.reason.time": "Zły termin",
+  "planner.draft.reason.topic": "Nie to, czego potrzebuję",
+  "planner.draft.reason.duplicate": "Już to mam"
 }

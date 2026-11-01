@@ -6282,5 +6282,8 @@
   "planner.draft.dueDate": "Due date",
   "planner.draft.startTime": "Start time",
   "planner.draft.duration": "Duration (min)",
-  "planner.draft.editFailed": "Could not save the change — reverted"
+  "planner.draft.editFailed": "Could not save the change — reverted",
+  "planner.draft.reason.time": "Wrong time",
+  "planner.draft.reason.topic": "Not what I need",
+  "planner.draft.reason.duplicate": "Already have this"
 }

@@ -52,6 +52,7 @@ class PlanProposal:
     duplicates: int = 0
     overlaps: int = 0
     review_due: int = 0
+    skipped_refused: int = 0
 
     @property
     def minutes(self) -> int:
@@ -234,6 +235,7 @@ def build_plan(
     busy: Sequence[Interval] = (),
     policy: SlotPolicy | None = None,
     review_due: int = 0,
+    dismissed_recent: Sequence[str] = (),
 ) -> PlanProposal:
     """Builds the reviewable rows for one week.
 
@@ -258,6 +260,8 @@ def build_plan(
 
     tasks: list[_Task] = []
     draft_titles: set[tuple[str, str]] = set()
+    refused = {normalize_title(title) for title in dismissed_recent if str(title).strip()}
+    skipped_refused = 0
     repeated = 0
     for candidate in candidates or ():
         kind = str(getattr(candidate, "kind", "task") or "task")
@@ -280,7 +284,12 @@ def build_plan(
                 explicit = parse_instant(candidate.start_at)
             except ValueError:
                 explicit = None
-        key = (due.isoformat(), normalize_title(candidate.title))
+        normalized = normalize_title(candidate.title)
+        if normalized in refused:
+            # Offering a row the learner just refused reads as not listening.
+            skipped_refused += 1
+            continue
+        key = (due.isoformat(), normalized)
         if key in draft_titles:
             # The same title twice in one draft has nothing to merge with; it
             # is noise, not a second task.
@@ -361,6 +370,7 @@ def build_plan(
         items=items,
         dropped_blocks=dropped,
         duplicates=sum(1 for task in tasks if task.conflict == "duplicate") + repeated,
+        skipped_refused=skipped_refused,
         overlaps=sum(1 for task in tasks if task.conflict == "overlap"),
         review_due=int(review_due),
     )

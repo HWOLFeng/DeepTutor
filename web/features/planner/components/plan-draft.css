@@ -211,3 +211,38 @@
 .planner-draft__editor button:hover:not(:disabled) {
   background: var(--accent);
 }
+
+.planner-draft__line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.planner-draft__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 6px 4px 26px;
+}
+
+.planner-draft__reasons button {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  cursor: pointer;
+}
+.planner-draft__reasons button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.planner-draft__reasons button.is-picked {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--background));
+  color: var(--foreground);
+}

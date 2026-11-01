@@ -51,6 +51,8 @@ export default function PlanDraftCard({
   // the server refuses it. The server's rows win whenever they arrive.
   const [items, setItems] = useState<PlanItem[]>(draft.items)
   const [editing, setEditing] = useState<string | null>(null)
+  // Optional tags for refused rows, keyed by item id. Absent is a valid answer.
+  const [reasons, setReasons] = useState<Record<string, string>>({})
   // The batch this card wrote. Seeded from the draft so a reload shows the same
   // state as the moment it was applied.
   const [written, setWritten] = useState<ApplyOutcome | null>(draft.apply_result ?? null)
@@ -84,6 +86,22 @@ export default function PlanDraftCard({
   const toggle = (item: PlanItem) => {
     if (isDisabled(item)) return
     setDismissed(previous => ({ ...previous, [item.item_id]: !previous[item.item_id] }))
+    // Re-accepting a row drops whatever tag it had: a reason only explains a
+    // refusal.
+    setReasons(previous => {
+      if (!previous[item.item_id]) return previous
+      const next = { ...previous }
+      delete next[item.item_id]
+      return next
+    })
+  }
+
+  const tagReason = (itemId: string, reason: string) => {
+    setReasons(previous =>
+      previous[itemId] === reason
+        ? Object.fromEntries(Object.entries(previous).filter(([key]) => key !== itemId))
+        : { ...previous, [itemId]: reason }
+    )
   }
 
   const selectable = items.filter(item => !item.locked && !readOnly)
@@ -103,7 +121,13 @@ export default function PlanDraftCard({
       for (const item of items) {
         decisions[item.item_id] = isSelected(item) ? 'accepted' : 'dismissed'
       }
-      const outcome = await applyDraft(draft.id, decisions)
+      const refusedReasons: Record<string, string> = {}
+      for (const item of items) {
+        if (!isSelected(item) && reasons[item.item_id]) {
+          refusedReasons[item.item_id] = reasons[item.item_id]
+        }
+      }
+      const outcome = await applyDraft(draft.id, decisions, refusedReasons)
       setWritten(outcome)
       onApplied?.(outcome)
     } catch (failure) {
@@ -194,6 +218,7 @@ export default function PlanDraftCard({
                 .filter(item => item.kind === group.kind)
                 .map(item => (
                   <li key={item.item_id} className="planner-draft__row">
+                    <div className="planner-draft__line">
                     <label className={isDisabled(item) ? 'is-disabled' : undefined}>
                       <input
                         type="checkbox"
@@ -241,6 +266,25 @@ export default function PlanDraftCard({
                         </button>
                       ) : null}
                     </span>
+                    </div>
+                    {!readOnly && !isSelected(item) ? (
+                      <span className="planner-draft__reasons">
+                        {(['time', 'topic', 'duplicate'] as const).map(reason => (
+                          <button
+                            key={reason}
+                            type="button"
+                            className={
+                              reasons[item.item_id] === reason ? 'is-picked' : undefined
+                            }
+                            onClick={() => tagReason(item.item_id, reason)}
+                            disabled={busy}
+                            aria-pressed={reasons[item.item_id] === reason}
+                          >
+                            {t(`planner.draft.reason.${reason}`)}
+                          </button>
+                        ))}
+                      </span>
+                    ) : null}
                   </li>
                 ))}
             </ul>

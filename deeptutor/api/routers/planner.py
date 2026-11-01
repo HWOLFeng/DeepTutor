@@ -44,6 +44,9 @@ class ApplyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     decisions: dict[str, Decision] = Field(default_factory=dict)
+    #: Optional tags explaining a dismissal. Absent means "no reason given",
+    #: which is a legitimate answer — never a validation error.
+    reasons: dict[str, str] | None = None
 
 
 class ApplyOutcome(BaseModel):
@@ -139,7 +142,9 @@ def apply_draft(draft_id: str, payload: ApplyRequest, request: Request) -> Apply
 
     with errors():
         if payload.decisions:
-            draft = store.set_decisions(draft_id, dict(payload.decisions))
+            draft = store.set_decisions(
+                draft_id, dict(payload.decisions), payload.reasons
+            )
 
     accepted = {item.item_id: item for item in draft.items if item.decision == "accepted"}
     orphaned = [

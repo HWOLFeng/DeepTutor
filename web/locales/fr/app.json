@@ -6389,5 +6389,8 @@
   "planner.draft.dueDate": "Échéance",
   "planner.draft.startTime": "Heure de début",
   "planner.draft.duration": "Durée (min)",
-  "planner.draft.editFailed": "Modification non enregistrée — rétablie"
+  "planner.draft.editFailed": "Modification non enregistrée — rétablie",
+  "planner.draft.reason.time": "Mauvais moment",
+  "planner.draft.reason.topic": "Pas ce qu'il me faut",
+  "planner.draft.reason.duplicate": "Je l'ai déjà"
 }

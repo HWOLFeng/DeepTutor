@@ -68,6 +68,7 @@ function draft(status: PlanDraft['status'] = 'reviewing'): PlanDraft {
         source: 'plan',
         locked: false,
         decision: 'pending',
+        reason: null,
         position: 0,
       },
     ],
@@ -169,6 +170,6 @@ describe('PlanDraftPanel', () => {
     fireEvent.click(confirm)
 
     await waitFor(() => expect(mocks.applyDraft).toHaveBeenCalledTimes(1))
-    expect(mocks.applyDraft).toHaveBeenCalledWith('d1', { i1: 'accepted' })
+    expect(mocks.applyDraft).toHaveBeenCalledWith('d1', { i1: 'accepted' }, {})
   })
 })

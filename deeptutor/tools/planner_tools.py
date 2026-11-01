@@ -616,6 +616,8 @@ class PlanWeekTool(_PromptHintsMixin, BaseTool):
             slots = find_free_slots(busy, (start, end), policy, tzid=tzid)
             review_due = _review_due(end)
             existing = _board(board_store, workspace_id).cards
+            session_id = str(kwargs.get("_plan_session") or "")
+            dismissed = _draft_store().recent_dismissed_titles(session_id)
             plan = build_plan(
                 goal=goal,
                 week_start=week_start,
@@ -626,6 +628,7 @@ class PlanWeekTool(_PromptHintsMixin, BaseTool):
                 busy=busy,
                 policy=policy,
                 review_due=review_due,
+                dismissed_recent=dismissed,
             )
             if not plan.items:
                 return _failure(
@@ -633,7 +636,7 @@ class PlanWeekTool(_PromptHintsMixin, BaseTool):
                 )
             language = str(kwargs.get("_plan_language") or "en")
             draft = _draft_store().create(
-                session_id=str(kwargs.get("_plan_session") or ""),
+                session_id=session_id,
                 workspace_id=workspace_id,
                 tzid=tzid,
                 items=plan.items,
@@ -675,6 +678,11 @@ class PlanWeekTool(_PromptHintsMixin, BaseTool):
             headline += f" {plan.duplicates} item(s) look like tasks already on the board."
         if plan.dropped_blocks:
             headline += f" {plan.dropped_blocks} task(s) got no time block: the week is full."
+        if plan.skipped_refused:
+            headline += (
+                f" {plan.skipped_refused} item(s) were left out: this conversation"
+                " rejected them recently."
+            )
         return ToolResult(
             content="\n".join([headline, *lines]),
             metadata={

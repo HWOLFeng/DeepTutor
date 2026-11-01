@@ -61,6 +61,7 @@ function draft(overrides: Partial<PlanDraft> = {}): PlanDraft {
         source: 'plan',
         locked: false,
         decision: 'pending',
+        reason: null,
         position: 0,
       },
       {
@@ -76,6 +77,7 @@ function draft(overrides: Partial<PlanDraft> = {}): PlanDraft {
         source: 'plan',
         locked: false,
         decision: 'pending',
+        reason: null,
         position: 1,
       },
     ],

@@ -6235,5 +6235,8 @@
   "planner.draft.dueDate": "Fällig am",
   "planner.draft.startTime": "Startzeit",
   "planner.draft.duration": "Dauer (Min.)",
-  "planner.draft.editFailed": "Änderung nicht gespeichert – zurückgesetzt"
+  "planner.draft.editFailed": "Änderung nicht gespeichert – zurückgesetzt",
+  "planner.draft.reason.time": "Falsche Zeit",
+  "planner.draft.reason.topic": "Nicht das, was ich brauche",
+  "planner.draft.reason.duplicate": "Habe ich schon"
 }

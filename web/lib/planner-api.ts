@@ -28,8 +28,13 @@ export interface PlanItem {
   /** Locked rows (spaced repetition) are accepted by default and cannot be dismissed. */
   locked: boolean
   decision: Decision
+  /** An optional tag explaining a dismissal ("time" | "topic" | "duplicate"). */
+  reason: string | null
   position: number
 }
+
+/** Why a row was refused. A tag, not a note — free text goes nowhere. */
+export type DismissReason = 'time' | 'topic' | 'duplicate'
 
 export interface PlanDraftSummary {
   goal?: string
@@ -110,12 +115,16 @@ export function patchItem(
 
 export function applyDraft(
   draftId: string,
-  decisions: Record<string, Decision>
+  decisions: Record<string, Decision>,
+  reasons: Record<string, string> = {}
 ): Promise<ApplyOutcome> {
+  // Reasons travel with the decisions but are optional: a learner who just
+  // unticked a box has already answered, and must not be made to explain.
+  const body = Object.keys(reasons).length ? { decisions, reasons } : { decisions }
   return request<ApplyOutcome>(`/drafts/${encodeURIComponent(draftId)}/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ decisions }),
+    body: JSON.stringify(body),
   })
 }
 

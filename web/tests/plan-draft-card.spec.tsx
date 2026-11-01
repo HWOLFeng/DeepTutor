@@ -30,9 +30,10 @@ function item(overrides: Partial<PlanItem> & Pick<PlanItem, 'item_id' | 'kind' |
     source: 'plan',
     locked: false,
     decision: 'pending',
+    reason: null,
     position: 0,
     ...overrides,
-  }
+  } as PlanItem
 }
 
 function draft(overrides: Partial<PlanDraft> = {}): PlanDraft {
@@ -174,12 +175,17 @@ describe('PlanDraftCard', () => {
     fireEvent.click(confirm)
 
     await waitFor(() => expect(mocks.applyDraft).toHaveBeenCalledTimes(1))
-    expect(mocks.applyDraft).toHaveBeenCalledWith('d1', {
-      i1: 'accepted',
-      i2: 'dismissed',
-      i3: 'accepted',
-      i4: 'accepted',
-    })
+    // The third argument carries refusal tags; none were chosen here.
+    expect(mocks.applyDraft).toHaveBeenCalledWith(
+      'd1',
+      {
+        i1: 'accepted',
+        i2: 'dismissed',
+        i3: 'accepted',
+        i4: 'accepted',
+      },
+      {}
+    )
   })
 
   it('keeps the selection and shows the reason when writing fails', async () => {

@@ -81,6 +81,9 @@ class PlanItem(PlanItemInput):
     draft_id: str
     item_id: str
     decision: Decision = "pending"
+    #: An optional tag explaining a dismissal ("time", "topic", "duplicate").
+    #: Kept so a rejection can be understood later, never to gate the UI.
+    reason: str | None = None
     position: int
 
 

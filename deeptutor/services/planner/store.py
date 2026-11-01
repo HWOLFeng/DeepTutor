@@ -33,6 +33,13 @@ DEFAULT_TTL_HOURS = 24
 
 STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
+#: How long a refusal is remembered. A day is long enough to cover the revision
+#: that follows a rejection, short enough that next week's plan can reconsider.
+DISMISSED_MEMORY_HOURS = 24
+
+#: A reason is a tag, not a note: anything longer is a bug in the caller.
+MAX_REASON_CHARS = 200
+
 #: Fields a reviewer may change before accepting. Decisions are not among
 #: them — that is the whole point of ``set_decisions``.
 PATCHABLE_FIELDS = frozenset({"title", "due_date", "start_at", "duration_min"})
@@ -124,6 +131,11 @@ class PlanDraftStore:
                 undone INTEGER NOT NULL DEFAULT 0
             );
         """)
+        columns = {row[1] for row in db.execute("PRAGMA table_info(plan_items)")}
+        if "reason" not in columns:
+            # Idempotent in-place migration: a separate migration script for one
+            # nullable column would be more machinery than the column is worth.
+            db.execute("ALTER TABLE plan_items ADD COLUMN reason TEXT")
         self._initialized = True
 
     @contextmanager
@@ -181,6 +193,7 @@ class PlanDraftStore:
             source=row["source"],
             locked=bool(row["locked"]),
             decision=row["decision"],
+            reason=row["reason"],
             position=row["position"],
         )
 
@@ -322,7 +335,12 @@ class PlanDraftStore:
             row = db.execute("SELECT * FROM plan_drafts WHERE id=?", (draft_key,)).fetchone()
             return self._draft_row(row, self._items(db, draft_key))
 
-    def set_decisions(self, draft_id: str, decisions: dict[str, str]) -> PlanDraft:
+    def set_decisions(
+        self,
+        draft_id: str,
+        decisions: dict[str, str],
+        reasons: dict[str, str] | None = None,
+    ) -> PlanDraft:
         draft = self.read(draft_id)
         if draft.status not in _OPEN_STATUSES:
             raise ValueError(f"Draft {draft_id} is {draft.status}; decisions are closed.")
@@ -330,17 +348,33 @@ class PlanDraftStore:
         unknown = set(decisions) - known
         if unknown:
             raise KeyError(sorted(unknown)[0])
+        selected = dict(reasons or {})
+        unknown_reasons = set(selected) - known
+        if unknown_reasons:
+            raise KeyError(sorted(unknown_reasons)[0])
         for item_id, decision in decisions.items():
             if decision not in _DECISIONS:
                 raise ValueError(f"Unknown decision {decision!r}.")
-            self._set_decision(draft_id, item_id, decision)
+            reason = selected.get(item_id)
+            if reason is not None and decision != "dismissed":
+                # A reason explains a rejection; accepting is its own explanation.
+                raise ValueError("A reason can only be attached to a dismissed item.")
+            self._set_decision(draft_id, item_id, decision, reason=reason)
         return self.read(draft_id)
 
-    def _set_decision(self, draft_id: str, item_id: str, decision: Decision) -> None:
+    def _set_decision(
+        self,
+        draft_id: str,
+        item_id: str,
+        decision: Decision,
+        *,
+        reason: str | None = None,
+    ) -> None:
+        cleaned = (reason or "").strip()[:MAX_REASON_CHARS] or None
         with self.connect(write=True) as db:
             cursor = db.execute(
-                "UPDATE plan_items SET decision=? WHERE draft_id=? AND item_id=?",
-                (decision, draft_id, item_id),
+                "UPDATE plan_items SET decision=?, reason=? WHERE draft_id=? AND item_id=?",
+                (decision, cleaned, draft_id, item_id),
             )
             if cursor.rowcount == 0:
                 raise KeyError(item_id)
@@ -421,6 +455,31 @@ class PlanDraftStore:
             db.execute("UPDATE plan_undo SET undone=1 WHERE token=?", (token,))
             db.execute("UPDATE plan_drafts SET status='undone' WHERE id=?", (row["draft_id"],))
         return self.read_undo(token)
+
+    def recent_dismissed_titles(
+        self,
+        session_id: str,
+        *,
+        hours: int = DISMISSED_MEMORY_HOURS,
+        now: datetime | None = None,
+    ) -> list[str]:
+        """Titles this conversation rejected recently.
+
+        The generator uses them to stop proposing the same row again: being
+        offered a task you just refused reads as not being listened to. Bounded
+        by time and by conversation on purpose — this is short-term manners, not
+        a permanent preference.
+        """
+        if not session_id:
+            return []
+        cutoff = _stamp((now or _now()) - timedelta(hours=max(1, int(hours))))
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT i.title FROM plan_items i JOIN plan_drafts d ON d.id = i.draft_id"
+                " WHERE d.session_id=? AND i.decision='dismissed' AND d.created_at>=?",
+                (session_id, cutoff),
+            ).fetchall()
+        return [row["title"] for row in rows]
 
     def purge_expired(self, now: datetime | None = None) -> int:
         """Drops closed drafts whose TTL has passed. Never touches applied ones."""

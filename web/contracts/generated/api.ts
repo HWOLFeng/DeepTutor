@@ -11891,6 +11891,10 @@ export interface components {
       readonly decisions?: {
         readonly [key: string]: "accepted" | "dismissed";
       };
+      /** Reasons */
+      readonly reasons?: {
+        readonly [key: string]: string;
+      } | null;
     };
     /** ApprovalRequest */
     readonly ApprovalRequest: {
@@ -15822,6 +15826,8 @@ export interface components {
       readonly locked: boolean;
       /** Position */
       readonly position: number;
+      /** Reason */
+      readonly reason?: string | null;
       /**
        * Source
        * @default plan

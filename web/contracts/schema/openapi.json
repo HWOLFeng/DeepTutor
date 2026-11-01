@@ -573,6 +573,20 @@
             },
             "title": "Decisions",
             "type": "object"
+          },
+          "reasons": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasons"
           }
         },
         "title": "ApplyRequest",
@@ -9280,6 +9294,17 @@
           "position": {
             "title": "Position",
             "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           },
           "source": {
             "default": "plan",

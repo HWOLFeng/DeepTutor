@@ -6257,5 +6257,8 @@
   "planner.draft.dueDate": "Термін",
   "planner.draft.startTime": "Час початку",
   "planner.draft.duration": "Тривалість (хв)",
-  "planner.draft.editFailed": "Не вдалося зберегти зміну — відновлено"
+  "planner.draft.editFailed": "Не вдалося зберегти зміну — відновлено",
+  "planner.draft.reason.time": "Невдалий час",
+  "planner.draft.reason.topic": "Не те, що потрібно",
+  "planner.draft.reason.duplicate": "Уже маю це"
 }

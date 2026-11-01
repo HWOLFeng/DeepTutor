@@ -34,9 +34,10 @@ function item(overrides: Partial<PlanItem> & Pick<PlanItem, 'item_id' | 'kind' |
     source: 'plan',
     locked: false,
     decision: 'pending',
+    reason: null,
     position: 0,
     ...overrides,
-  }
+  } as PlanItem
 }
 
 function draft(overrides: Partial<PlanDraft> = {}): PlanDraft {

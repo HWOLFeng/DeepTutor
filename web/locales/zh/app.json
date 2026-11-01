@@ -6282,5 +6282,8 @@
   "planner.draft.dueDate": "到期日",
   "planner.draft.startTime": "开始时间",
   "planner.draft.duration": "时长（分钟）",
-  "planner.draft.editFailed": "保存失败，已恢复原值"
+  "planner.draft.editFailed": "保存失败，已恢复原值",
+  "planner.draft.reason.time": "时间不合适",
+  "planner.draft.reason.topic": "不是我想要的",
+  "planner.draft.reason.duplicate": "已经有类似任务"
 }
