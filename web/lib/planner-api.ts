@@ -119,6 +119,21 @@ export function applyDraft(
   })
 }
 
+export interface UndoOutcome {
+  removed: number
+  skipped: string[]
+  already_undone: boolean
+  revision: Record<string, number>
+}
+
+/**
+ * Takes back one applied batch. Rows the learner has since edited come back
+ * named in `skipped` — the batch never overrules a later decision.
+ */
+export function undoBatch(token: string): Promise<UndoOutcome> {
+  return request<UndoOutcome>(`/undo/${encodeURIComponent(token)}`, { method: 'POST' })
+}
+
 /** Total minutes a set of accepted rows would put on the calendar. */
 export function selectedMinutes(draft: PlanDraft, isSelected: (item: PlanItem) => boolean): number {
   return draft.items.reduce(

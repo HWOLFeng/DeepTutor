@@ -6223,5 +6223,11 @@
   "planner.draft.status.expired": "Abgelaufen",
   "planner.draft.loading": "Entwurf wird geladen …",
   "planner.draft.missing": "Dieser Entwurf ist abgelaufen und kann nicht mehr geprüft werden.",
-  "planner.draft.superseded": "{{n}} frühere(r) Entwurf/Entwürfe aus dieser Antwort, überholt"
+  "planner.draft.superseded": "{{n}} frühere(r) Entwurf/Entwürfe aus dieser Antwort, überholt",
+  "planner.draft.written": "{{n}} Eintrag/Einträge geschrieben",
+  "planner.draft.undo": "Rückgängig",
+  "planner.draft.undoConfirm": "Wirklich zurücknehmen?",
+  "planner.draft.undone": "{{n}} zurückgenommen",
+  "planner.draft.undoSkipped": "Seither geändert, daher behalten: {{titles}}",
+  "planner.draft.undoFailed": "Rückgängig machen fehlgeschlagen – bitte erneut versuchen"
 }

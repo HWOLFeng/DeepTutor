@@ -6245,5 +6245,11 @@
   "planner.draft.status.expired": "Wygasło",
   "planner.draft.loading": "Wczytywanie szkicu…",
   "planner.draft.missing": "Ten szkic wygasł i nie można go już przejrzeć.",
-  "planner.draft.superseded": "{{n}} wcześniejszy/e szkic(e) w tej odpowiedzi, zastąpione"
+  "planner.draft.superseded": "{{n}} wcześniejszy/e szkic(e) w tej odpowiedzi, zastąpione",
+  "planner.draft.written": "Zapisano {{n}} pozycję/pozycji",
+  "planner.draft.undo": "Wycofaj",
+  "planner.draft.undoConfirm": "Na pewno wycofać?",
+  "planner.draft.undone": "Wycofano {{n}}",
+  "planner.draft.undoSkipped": "Zmienione później, więc zachowane: {{titles}}",
+  "planner.draft.undoFailed": "Nie udało się wycofać — spróbuj ponownie"
 }

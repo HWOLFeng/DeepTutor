@@ -6245,5 +6245,11 @@
   "planner.draft.status.expired": "Термін минув",
   "planner.draft.loading": "Завантаження чернетки…",
   "planner.draft.missing": "Термін цієї чернетки минув, її більше не можна переглянути.",
-  "planner.draft.superseded": "{{n}} попередн(я/і) чернетк(а/и) у цій відповіді, замінено"
+  "planner.draft.superseded": "{{n}} попередн(я/і) чернетк(а/и) у цій відповіді, замінено",
+  "planner.draft.written": "Записано {{n}} елемент(ів)",
+  "planner.draft.undo": "Скасувати",
+  "planner.draft.undoConfirm": "Справді скасувати?",
+  "planner.draft.undone": "Скасовано {{n}}",
+  "planner.draft.undoSkipped": "Змінені після цього, тому залишені: {{titles}}",
+  "planner.draft.undoFailed": "Не вдалося скасувати — спробуйте ще раз"
 }

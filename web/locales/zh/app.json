@@ -6270,5 +6270,11 @@
   "planner.draft.status.expired": "已过期",
   "planner.draft.loading": "正在读取草稿…",
   "planner.draft.missing": "这份草稿已过期，无法再审阅。",
-  "planner.draft.superseded": "这条回复里还有 {{n}} 份更早的草稿，已被取代"
+  "planner.draft.superseded": "这条回复里还有 {{n}} 份更早的草稿，已被取代",
+  "planner.draft.written": "已写入 {{n}} 条",
+  "planner.draft.undo": "撤销",
+  "planner.draft.undoConfirm": "确认撤销？",
+  "planner.draft.undone": "已撤销 {{n}} 条",
+  "planner.draft.undoSkipped": "这些已被你改过，故保留：{{titles}}",
+  "planner.draft.undoFailed": "撤回失败，请重试"
 }

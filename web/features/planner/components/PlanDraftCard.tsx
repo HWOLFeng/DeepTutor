@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Lock } from 'lucide-react'
 import {
   applyDraft,
+  undoBatch,
   type ApplyOutcome,
   type Decision,
   type ItemKind,
@@ -45,8 +46,15 @@ export default function PlanDraftCard({
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The batch this card wrote. Seeded from the draft so a reload shows the same
+  // state as the moment it was applied.
+  const [written, setWritten] = useState<ApplyOutcome | null>(draft.apply_result ?? null)
+  const [undoing, setUndoing] = useState(false)
+  const [confirmingUndo, setConfirmingUndo] = useState(false)
+  const [undone, setUndone] = useState<{ removed: number; skipped: string[] } | null>(null)
 
-  const readOnly = draft.status !== 'drafting' && draft.status !== 'reviewing'
+  const closed = draft.status !== 'drafting' && draft.status !== 'reviewing'
+  const readOnly = closed || written !== null
   const byId = useMemo(
     () => new Map(draft.items.map(item => [item.item_id, item])),
     [draft.items]
@@ -94,12 +102,33 @@ export default function PlanDraftCard({
         decisions[item.item_id] = isSelected(item) ? 'accepted' : 'dismissed'
       }
       const outcome = await applyDraft(draft.id, decisions)
+      setWritten(outcome)
       onApplied?.(outcome)
     } catch (failure) {
       // Keep the selection: retrying must not cost the learner their choices.
       setError(failure instanceof Error ? failure.message : t('planner.draft.error'))
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function undo() {
+    if (!written || undoing) return
+    setUndoing(true)
+    setError(null)
+    try {
+      const outcome = await undoBatch(written.undo_token)
+      if (outcome.already_undone) {
+        setUndone({ removed: 0, skipped: outcome.skipped ?? [] })
+      } else {
+        setUndone({ removed: outcome.removed, skipped: outcome.skipped ?? [] })
+      }
+      setConfirmingUndo(false)
+    } catch (failure) {
+      // Keep the button: a failed undo is retryable, and the reason matters.
+      setError(failure instanceof Error ? failure.message : t('planner.draft.undoFailed'))
+    } finally {
+      setUndoing(false)
     }
   }
 
@@ -116,7 +145,13 @@ export default function PlanDraftCard({
           <h3>{t('planner.draft.title')}</h3>
           <p className="planner-draft__sub">
             {draft.summary.goal ? `${draft.summary.goal} · ` : ''}
-            {readOnly ? t(`planner.draft.status.${draft.status}`) : t('planner.draft.unsaved')}
+            {undone
+              ? t('planner.draft.status.undone')
+              : written
+                ? t('planner.draft.status.applied')
+                : readOnly
+                  ? t(`planner.draft.status.${draft.status}`)
+                  : t('planner.draft.unsaved')}
           </p>
         </div>
       </header>
@@ -178,7 +213,45 @@ export default function PlanDraftCard({
 
       {readOnly ? (
         <footer className="planner-draft__foot">
-          <span className="planner-draft__count">{t('planner.draft.selected', { n: selected.length, total, hours })}</span>
+          <span className="planner-draft__count">
+            {t('planner.draft.selected', { n: selected.length, total, hours })}
+          </span>
+          {written ? (
+            <div className="planner-draft__actions">
+              {undone ? (
+                <span className="planner-draft__count">
+                  {t('planner.draft.undone', { n: undone.removed })}
+                </span>
+              ) : confirmingUndo ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingUndo(false)}
+                    disabled={undoing}
+                  >
+                    {t('planner.draft.cancel')}
+                  </button>
+                  <button
+                    type="button"
+                    className="planner-draft__confirm"
+                    onClick={() => void undo()}
+                    disabled={undoing}
+                  >
+                    {t('planner.draft.undoConfirm')}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="planner-draft__count">
+                    {t('planner.draft.written', { n: written.applied })}
+                  </span>
+                  <button type="button" onClick={() => setConfirmingUndo(true)} disabled={undoing}>
+                    {t('planner.draft.undo')}
+                  </button>
+                </>
+              )}
+            </div>
+          ) : null}
         </footer>
       ) : (
         <footer className="planner-draft__foot">
@@ -215,6 +288,11 @@ export default function PlanDraftCard({
           </div>
         </footer>
       )}
+      {undone && undone.skipped.length > 0 ? (
+        <p className="planner-draft__hint" role="status">
+          {t('planner.draft.undoSkipped', { titles: undone.skipped.join(', ') })}
+        </p>
+      ) : null}
     </section>
   )
 }

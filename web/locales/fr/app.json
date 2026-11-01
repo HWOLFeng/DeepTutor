@@ -6377,5 +6377,11 @@
   "planner.draft.status.expired": "Expiré",
   "planner.draft.loading": "Chargement du brouillon…",
   "planner.draft.missing": "Ce brouillon a expiré et ne peut plus être relu.",
-  "planner.draft.superseded": "{{n}} brouillon(s) plus ancien(s) dans cette réponse, remplacé(s)"
+  "planner.draft.superseded": "{{n}} brouillon(s) plus ancien(s) dans cette réponse, remplacé(s)",
+  "planner.draft.written": "{{n}} élément(s) écrit(s)",
+  "planner.draft.undo": "Annuler",
+  "planner.draft.undoConfirm": "Vraiment annuler ?",
+  "planner.draft.undone": "{{n}} annulé(s)",
+  "planner.draft.undoSkipped": "Modifié(s) depuis, donc conservé(s) : {{titles}}",
+  "planner.draft.undoFailed": "Annulation impossible — réessayez"
 }

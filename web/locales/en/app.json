@@ -6270,5 +6270,11 @@
   "planner.draft.status.expired": "Expired",
   "planner.draft.loading": "Loading the draft…",
   "planner.draft.missing": "This draft has expired, so it can no longer be reviewed.",
-  "planner.draft.superseded": "{{n}} earlier draft(s) from this reply, superseded"
+  "planner.draft.superseded": "{{n}} earlier draft(s) from this reply, superseded",
+  "planner.draft.written": "{{n}} item(s) written",
+  "planner.draft.undo": "Undo",
+  "planner.draft.undoConfirm": "Take it back?",
+  "planner.draft.undone": "Took back {{n}}",
+  "planner.draft.undoSkipped": "Edited since, so kept: {{titles}}",
+  "planner.draft.undoFailed": "Could not undo — try again"
 }
