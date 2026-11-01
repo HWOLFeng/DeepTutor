@@ -37,7 +37,7 @@
 | --- | --- | --- | --- | --- |
 | [F00](F00-acceptance-env.md) | 验收环境 | M0 | — | ☑ |
 | [F01](F01-draft-store.md) | 草稿存储 | M0 | F00 | ☑ |
-| [F02](F02-planner-context.md) | 规划上下文聚合 | M0 | F01 | ☐ |
+| [F02](F02-planner-context.md) | 规划上下文聚合 | M0 | F01 | ☑ |
 | [F03](F03-context-injection.md) | 上下文注入 | M0 | F02 | ☐ |
 | [F04](F04-contracts.md) | 契约与 plan_draft 事件 | M0 | F00 | ☐ |
 | [F05](F05-tasks-tool.md) | tasks 工具 | M1 | F01 | ☐ |
@@ -93,3 +93,4 @@
 | 2026-11-01 | 文档集建立（F00–F18 + README） | — | 文档完成 |
 | 2026-11-01 | F00 验收环境 | 无（不改仓库） | `pytest 9.2.0` / `pip 26.2.2` / `deps ok`；前端仍无 Node |
 | 2026-11-01 | F01 草稿存储 | `f3140a7b` | `pytest tests/services/planner -q` → `11 passed`；`compileall` 无输出 |
+| 2026-11-01 | F02 规划上下文聚合 | `049f638c` | `pytest tests/services/planner -q` → `23 passed`；典型日渲染 178 字符（上限 1200）|

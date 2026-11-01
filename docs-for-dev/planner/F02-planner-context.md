@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已验收（2026-11-01，`049f638c`）|
 | 里程碑 | M0 |
 | 依赖 | F01 |
 | 回滚 | `git revert <sha>`。纯新增只读模块，不影响现有对话 |
@@ -29,7 +29,9 @@ class PlannerSnapshot:
     degraded: list[str]        # 读取失败的数据源名
 
 def load_planner_context(workspace_id: str, *, days: int = 7, tzid: str | None = None,
-                         sources: PlannerSources | None = None) -> str
+                         sources: PlannerSources | None = None,
+                         session_id: str | None = None,
+                         now: datetime | None = None) -> str
 
 def render_planner_context(snapshot: PlannerSnapshot) -> str
 ```
@@ -47,7 +49,9 @@ def render_planner_context(snapshot: PlannerSnapshot) -> str
 
 规则：
 - 每个数据源单独 `try/except`，失败写进 `degraded` 并在文本末尾用一行 `（部分数据读取失败：events）`，**绝不抛异常**——规划上下文不能让整轮对话挂掉；
-- 总量硬上限 1200 字符，超限按「事件 → 任务 → 关联任务」顺序截断，并在末尾写 `（已截断）`；
+- 每次最多渲染 8 条事件 / 8 条任务 / 6 条关联任务（常量 `MAX_EVENT_ROWS` 等），超出的直接不渲染并标 `（已截断）`；
+- 总量硬上限 1200 字符（`MAX_CONTEXT_CHARS`），仍超限时按「事件 → 任务 → 关联任务」顺序逐行丢弃，末尾写 `（已截断）`；标题超过 24 字符截断为 `…`；
+- 全天事件渲染成 `MM/DD 全天`（它是本地日历日，**不得**做时区换算）；计时事件换算到用户时区后渲染 `MM/DD HH:MM`；
 - 空数据渲染成 `暂无`，不省略标题行；
 - 时间格式统一 `MM/DD HH:MM`，日期统一 `MM/DD`，全部通过 `recurrence.zone()` 换算，不手写时区逻辑。
 
@@ -75,6 +79,7 @@ def render_planner_context(snapshot: PlannerSnapshot) -> str
 - 只写这 3 个文件：`deeptutor/services/planner/context.py`、`tests/services/planner/test_planner_context.py`、必要时 `tests/services/planner/fakes.py`；
 - **不得修改** `deeptutor/core/context.py`、`deeptutor/agents/loop/prompt_blocks.py`、`deeptutor/services/session/turns/executor.py`（那是 F03）；
 - 不调 LLM、不发网络请求、不写任何库；
+- `session_id` 只用于取「本会话关联任务」，缺省时该行渲染为 `暂无`；
 - 延迟导入重型模块，保证只装 `pydantic` 的 venv 能跑测试；
 - 不提交。
 
@@ -85,13 +90,17 @@ cd /root/DeepTutor
 .venv/bin/python -m pytest tests/services/planner/test_planner_context.py -q
 ```
 
+实测结果：`11 passed`（连同 F01 的 11 个用例，`pytest tests/services/planner -q` 共 `23 passed`）。
+
 测试必须覆盖：
 
 1. 有数据：渲染结果包含今天日期、时区、事件条数、未完成任务数、到期复习数五类信息；
 2. 全空：渲染结果包含 `暂无`，且不抛异常；
 3. 某一路数据源抛异常（例如 events 抛 `OSError`）：其余信息仍渲染，`degraded` 含 `events`，文本末尾含「部分数据读取失败」；
 4. 超量截断：给 200 条事件，输出长度 `<= 1200` 且以 `（已截断）` 结尾；
-5. 隔离：`workspace_id="a"` 的聚合结果不含 `workspace_id="b"` 的任务（用假 sources 断言过滤条件被传递）。
+5. 隔离：`workspace_id="a"` 的聚合结果不含 `workspace_id="b"` 的任务（用假 sources 断言过滤条件被传递）；
+6. 真实数据源的事件映射：计时事件按用户时区换算、全天事件保持本地日历日（用打桩的 calendar store 断言 `11/02 19:00` 与 `11/04 全天`）；
+7. `session_id` 被原样传给关联任务读取函数（`None` 与具体 id 各测一次）。
 
 ## 交付
 
