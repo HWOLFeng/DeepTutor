@@ -13,6 +13,7 @@ import {
   type PlanDraft,
   type PlanItem,
 } from '@/lib/planner-api'
+import Tooltip from '@/shared/ui/Tooltip'
 import './plan-draft.css'
 
 /**
@@ -111,6 +112,17 @@ export default function PlanDraftCard({
   const hours = (minutes / 60).toFixed(1)
   const limit = draft.summary.weekly_limit_min
   const overBudget = typeof limit === 'number' && minutes > limit
+
+  const confirmButton = (
+    <button
+      type="button"
+      className="planner-draft__confirm"
+      onClick={() => void confirm()}
+      disabled={busy || selected.length === 0 || editing !== null}
+    >
+      {t('planner.draft.confirm', { n: selected.length })}
+    </button>
+  )
 
   async function confirm() {
     if (busy || !selected.length) return
@@ -371,15 +383,14 @@ export default function PlanDraftCard({
                 {t('planner.draft.cancel')}
               </button>
             ) : null}
-            <button
-              type="button"
-              className="planner-draft__confirm"
-              onClick={() => void confirm()}
-              disabled={busy || selected.length === 0 || editing !== null}
-              title={selected.length === 0 ? t('planner.draft.atLeastOne') : undefined}
-            >
-              {t('planner.draft.confirm', { n: selected.length })}
-            </button>
+            {selected.length === 0 ? (
+              // A disabled button still has to say why it is disabled; the shared
+              // tooltip keeps that hint reachable by keyboard and touch, which a
+              // native title on a disabled control does not.
+              <Tooltip label={t('planner.draft.atLeastOne')}>{confirmButton}</Tooltip>
+            ) : (
+              confirmButton
+            )}
           </div>
         </footer>
       )}
