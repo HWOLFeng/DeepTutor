@@ -1440,6 +1440,10 @@ class AgenticLoopPipeline:
             kwargs["language"] = context.language or "en"
         elif tool_name == "load_tools":
             kwargs["_tool_loader"] = self._deferred_loader
+        elif tool_name == "plan_week":
+            # The draft belongs to this conversation; the model never names it.
+            kwargs["_plan_session"] = context.session_id
+            kwargs["_plan_language"] = context.language or "en"
         elif tool_name == "cron":
             # Owner routing is supplied server-side — the model never picks
             # where a scheduled task's output lands.

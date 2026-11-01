@@ -9,6 +9,7 @@
   ],
   "paths": [
     "deeptutor/services/calendar",
+    "deeptutor/services/planner",
     "deeptutor/services/cron",
     "deeptutor/api/routers/calendar.py",
     "deeptutor/tools/cron_tool.py",
@@ -28,6 +29,10 @@
     "calendar": {
       "class_path": "deeptutor.tools.planner_tools:CalendarTool",
       "order": 26
+    },
+    "plan_week": {
+      "class_path": "deeptutor.tools.planner_tools:PlanWeekTool",
+      "order": 27
     }
   },
   "routes": [

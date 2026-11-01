@@ -31,10 +31,14 @@ from deeptutor.tools.prompting import load_prompt_hints
 
 TASKS_TOOL_NAME = "tasks"
 CALENDAR_TOOL_NAME = "calendar"
-PLANNER_TOOL_NAMES: tuple[str, ...] = (TASKS_TOOL_NAME, CALENDAR_TOOL_NAME)
+PLAN_WEEK_TOOL_NAME = "plan_week"
+PLANNER_TOOL_NAMES: tuple[str, ...] = (TASKS_TOOL_NAME, CALENDAR_TOOL_NAME, PLAN_WEEK_TOOL_NAME)
 
 TASK_ACTIONS = ("list", "create", "update", "complete", "reschedule")
 CALENDAR_ACTIONS = ("list_events", "create_event", "update_event", "delete_event", "find_free_slots")
+PLAN_DEFAULT_DAILY_MIN = 180
+PLAN_MIN_DAILY_MIN = 15
+PLAN_MAX_DAILY_MIN = 600
 
 
 class _PromptHintsMixin:
@@ -54,6 +58,13 @@ def _calendar_store():
     from deeptutor.services.calendar.store import get_calendar_store
 
     return get_calendar_store()
+
+
+def _draft_store():
+    """Indirection so tests can stand in for the account draft store."""
+    from deeptutor.services.planner.store import get_plan_draft_store
+
+    return get_plan_draft_store()
 
 
 def _workspace() -> str:
@@ -281,28 +292,38 @@ def _zone_name(raw: Any) -> str:
 
 
 def _busy(occurrences: list[Any], tzid: str):
-    """Calendar rows as busy spans, with all-day rows kept to their own days."""
-    from datetime import datetime, time
-    from datetime import date as date_type
+    """Calendar rows as busy spans; one implementation, shared with F08."""
+    from deeptutor.services.planner.planner import busy_from_occurrences
 
-    from deeptutor.services.calendar.recurrence import parse_instant, zone
-    from deeptutor.services.planner.slots import Interval
+    return busy_from_occurrences(occurrences, tzid)
 
-    local = zone(tzid)
-    spans = []
-    for occurrence in occurrences:
-        if occurrence.all_day:
-            first = date_type.fromisoformat(occurrence.start)
-            last = date_type.fromisoformat(occurrence.end)  # exclusive end
-            spans.append(
-                Interval(
-                    datetime.combine(first, time(0), tzinfo=local),
-                    datetime.combine(last, time(0), tzinfo=local),
-                )
-            )
-        else:
-            spans.append(Interval(parse_instant(occurrence.start), parse_instant(occurrence.end)))
-    return spans
+
+def _review_title(count: int, language: str) -> str:
+    if str(language or "").lower().startswith("zh"):
+        return f"到期复习 {count} 个"
+    return f"{count} review{'s' if count != 1 else ''} due"
+
+
+def _review_due(horizon) -> int:
+    """Due spaced-repetition cards before ``horizon``, or 0 when unavailable."""
+    from deeptutor.modules.catalog import module_enabled
+
+    if not module_enabled("mastery"):
+        return 0
+    try:
+        from deeptutor.learning.scheduler import SpacedRepetitionScheduler
+        from deeptutor.learning.storage import LearningStore
+
+        scheduler = SpacedRepetitionScheduler()
+        learning = LearningStore()
+        due = 0
+        for progress, _topic, _count, _interaction in learning.list_topic_snapshots():
+            for task in scheduler.build_review_queue(progress):
+                if task.due_at < horizon.timestamp():
+                    due += 1
+        return due
+    except (OSError, ValueError):
+        return 0
 
 
 def _slot_label(item, tzid: str) -> str:
@@ -521,11 +542,211 @@ class CalendarTool(_PromptHintsMixin, BaseTool):
         )
 
 
+class PlanWeekTool(_PromptHintsMixin, BaseTool):
+    """Turns a goal into a draft the learner reviews item by item."""
+
+    def get_definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name=PLAN_WEEK_TOOL_NAME,
+            description=(
+                "Build a reviewable plan for one week: propose the tasks, and this "
+                "sizes them, places time blocks, spots duplicates and respects a "
+                "daily ceiling. NOTHING is written to the task board or the "
+                "calendar — the learner accepts or rejects each item on a card "
+                "afterwards, so never call this and then also create what it "
+                "proposed. Do not pass durations; they are decided here."
+            ),
+            parameters=[
+                ToolParameter(
+                    name="goal",
+                    type="string",
+                    description="What the week is for, e.g. '线性代数期中 11/07'.",
+                ),
+                ToolParameter(
+                    name="week_start",
+                    type="string",
+                    description="Any date in the target week (YYYY-MM-DD). Defaults to this week.",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="items",
+                    type="array",
+                    description=(
+                        "Candidate tasks: objects with `title` (required), optional "
+                        "`due_date` (YYYY-MM-DD) and `kind` (task | review)."
+                    ),
+                    required=False,
+                    items={"type": "object"},
+                ),
+                ToolParameter(
+                    name="daily_max_min",
+                    type="integer",
+                    description="Minutes of study blocks allowed per day (preference).",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="tzid",
+                    type="string",
+                    description="Zone for the week (defaults to the reader's zone).",
+                    required=False,
+                ),
+            ],
+        )
+
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        from deeptutor.services.planner.planner import build_plan, week_window
+        from deeptutor.services.planner.slots import find_free_slots
+
+        goal = str(kwargs.get("goal") or "").strip()
+        if not goal:
+            return _failure("plan_week needs a goal — what the week is for.")
+        try:
+            tzid = _zone_name(kwargs.get("tzid"))
+            week_start = _week_start(kwargs.get("week_start"), tzid)
+            policy = _policy(kwargs.get("daily_max_min"))
+            candidates = _candidates(kwargs.get("items"))
+            workspace_id = _workspace()
+            board_store = _board_store()
+            calendar_store = _calendar_store()
+            start, end = week_window(week_start, tzid)
+            occurrences = calendar_store.occurrences(start, end, tzid).get("occurrences") or []
+            busy = _busy(occurrences, tzid)
+            # The planner places blocks itself; pre-computing the week's free
+            # time here is only to report how tight it is.
+            slots = find_free_slots(busy, (start, end), policy, tzid=tzid)
+            review_due = _review_due(end)
+            existing = _board(board_store, workspace_id).cards
+            plan = build_plan(
+                goal=goal,
+                week_start=week_start,
+                workspace_id=workspace_id,
+                tzid=tzid,
+                candidates=candidates,
+                existing_tasks=existing,
+                busy=busy,
+                policy=policy,
+                review_due=review_due,
+            )
+            if not plan.items:
+                return _failure(
+                    "Nothing to plan: no candidate items and nothing due for review."
+                )
+            language = str(kwargs.get("_plan_language") or "en")
+            draft = _draft_store().create(
+                session_id=str(kwargs.get("_plan_session") or ""),
+                workspace_id=workspace_id,
+                tzid=tzid,
+                items=plan.items,
+                summary={
+                    "goal": goal,
+                    "week_start": week_start.isoformat(),
+                    "daily_max_min": policy.daily_max_min,
+                    "weekly_limit_min": policy.daily_max_min * 7,
+                    "free_minutes": sum(slot.minutes for slot in slots),
+                    "dropped_blocks": plan.dropped_blocks,
+                    "duplicates": plan.duplicates,
+                    "overlaps": plan.overlaps,
+                    "review_due": plan.review_due,
+                },
+                calendar_revision=calendar_store.revision(),
+                board_revision=board_store.revision(),
+            )
+        except KeyError:
+            return _failure("The draft could not be stored.")
+        except ValueError as exc:
+            return _failure(str(exc))
+
+        counts = {kind: 0 for kind in ("task", "block", "review")}
+        lines = []
+        for item in draft.items:
+            counts[item.kind] = counts.get(item.kind, 0) + 1
+            when = f" · {item.start_at}" if item.start_at else (f" · {item.due_date}" if item.due_date else "")
+            mark = "" if item.conflict == "none" else f" · {item.conflict}"
+            lines.append(f"- `{item.item_id}` {item.title}{when}{mark}")
+        headline = (
+            f"Draft `{draft.id}` ready: {counts['task']} task(s), "
+            f"{counts['block']} time block(s), {counts['review']} review row(s). "
+            "Nothing is written until the learner accepts items — do not create "
+            "them yourself."
+        )
+        if plan.overlaps:
+            headline += f" {plan.overlaps} item(s) overlap an existing event."
+        if plan.duplicates:
+            headline += f" {plan.duplicates} item(s) look like tasks already on the board."
+        if plan.dropped_blocks:
+            headline += f" {plan.dropped_blocks} task(s) got no time block: the week is full."
+        return ToolResult(
+            content="\n".join([headline, *lines]),
+            metadata={
+                "plan_draft_id": draft.id,
+                "item_ids": [item.item_id for item in draft.items],
+            },
+        )
+
+
+def _week_start(raw: Any, tzid: str):
+    """The Monday of the week ``raw`` names, defaulting to this week."""
+    from datetime import date, datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    text = str(raw or "").strip()
+    if text:
+        try:
+            moment = date.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError(f"week_start must be YYYY-MM-DD, got {text!r}.") from exc
+    else:
+        moment = datetime.now(timezone.utc).astimezone(ZoneInfo(tzid)).date()
+    return moment - timedelta(days=moment.weekday())
+
+
+def _policy(daily_max_min: Any):
+    from deeptutor.services.planner.slots import SlotPolicy
+
+    if daily_max_min is None:
+        return SlotPolicy()
+    try:
+        minutes = int(daily_max_min)
+    except (TypeError, ValueError):
+        return SlotPolicy()
+    minutes = max(PLAN_MIN_DAILY_MIN, min(PLAN_MAX_DAILY_MIN, minutes))
+    return SlotPolicy(daily_max_min=minutes)
+
+
+def _candidates(raw: Any):
+    """Model-proposed rows, with durations deliberately discarded."""
+    from deeptutor.services.planner.models import PlanItemInput
+
+    if not isinstance(raw, list):
+        return []
+    rows = []
+    for entry in raw[:40]:
+        if not isinstance(entry, dict):
+            continue
+        title = str(entry.get("title") or "").strip()
+        if not title:
+            continue
+        kind = str(entry.get("kind") or "task").strip().lower()
+        if kind not in {"task", "review"}:
+            kind = "task"
+        due = entry.get("due_date")
+        rows.append(
+            PlanItemInput(
+                kind=kind,
+                title=title,
+                due_date=str(due).strip() if due else None,
+            )
+        )
+    return rows
+
+
 __all__ = [
     "CALENDAR_ACTIONS",
     "CALENDAR_TOOL_NAME",
     "CalendarTool",
     "PLANNER_TOOL_NAMES",
+    "PLAN_WEEK_TOOL_NAME",
+    "PlanWeekTool",
     "TASK_ACTIONS",
     "TASKS_TOOL_NAME",
     "TasksTool",

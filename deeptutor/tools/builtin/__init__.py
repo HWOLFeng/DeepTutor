@@ -2296,6 +2296,7 @@ CONFIGURABLE_BUILTIN_TOOL_NAMES: tuple[str, ...] = (
     "cron",
     "tasks",
     "calendar",
+    "plan_week",
     "ask_user",
     "mastery_topics",
     "mastery_sessions",
